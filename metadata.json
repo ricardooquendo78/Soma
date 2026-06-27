@@ -1,0 +1,8 @@
+{
+  "name": "Soma",
+  "description": "Aplicación de nutrición y dietética para niños de 0 a 5 años basada en estándares de la OMS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
