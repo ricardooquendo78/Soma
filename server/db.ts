@@ -70,7 +70,10 @@ export async function initDatabase(): Promise<void> {
     if (uri) {
       try {
         console.log('Connecting to MongoDB Atlas...');
-        mongoClient = new MongoClient(uri);
+        mongoClient = new MongoClient(uri, {
+          serverSelectionTimeoutMS: 2500,
+          connectTimeoutMS: 2500
+        });
         await mongoClient.connect();
         mongoDb = mongoClient.db('soma_nutricion');
         useMongo = true;
