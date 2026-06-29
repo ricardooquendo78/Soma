@@ -1,7 +1,7 @@
 export default async function handler(req: any, res: any) {
   try {
-    // Dynamically import the Express app to catch any import-time crashes
-    const appModule = await import('../server');
+    // Dynamically import the Express app with explicit file extension to avoid directory resolution conflict
+    const appModule = await import('../server.ts');
     const app = appModule.default;
     return app(req, res);
   } catch (err: any) {
