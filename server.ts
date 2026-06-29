@@ -29,6 +29,16 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Ensure database is initialized before serving any request (critical for serverless)
+app.use(async (req, res, next) => {
+  try {
+    await initDatabase();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 // API ROUTES
 app.get('/api/health', (req, res) => {
   res.json({
@@ -282,7 +292,7 @@ app.delete('/api/patients/:id', async (req, res) => {
 
 // INIT APP AND ATTACH MIDDLEWARES
 async function startServer() {
-  // Initialize Database Wrapper
+  // Initialize Database Wrapper (also handled by middleware, but good to run eagerly on startup)
   await initDatabase();
 
   // Vite Integration
@@ -305,4 +315,9 @@ async function startServer() {
   });
 }
 
-startServer();
+// Only run standalone server if not in Vercel serverless environment
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

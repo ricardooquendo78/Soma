@@ -41,69 +41,132 @@ interface LocalDatabase {
 let mongoClient: MongoClient | null = null;
 let mongoDb: Db | null = null;
 let useMongo = false;
+let dbInitialized = false;
+let dbInitializingPromise: Promise<void> | null = null;
+
+// Helper functions to get collection references with 'any' cast to bypass strict ObjectId types for custom string _ids
+const colUsers = () => {
+  if (!mongoDb) throw new Error('Database not connected');
+  return mongoDb.collection('users') as any;
+};
+const colPatients = () => {
+  if (!mongoDb) throw new Error('Database not connected');
+  return mongoDb.collection('patients') as any;
+};
+const colVerificationCodes = () => {
+  if (!mongoDb) throw new Error('Database not connected');
+  return mongoDb.collection('verification_codes') as any;
+};
 
 // Initialize Database connection
-export async function initDatabase() {
-  const uri = process.env.MONGODB_URI;
-  if (uri) {
-    try {
-      console.log('Connecting to MongoDB Atlas...');
-      mongoClient = new MongoClient(uri);
-      await mongoClient.connect();
-      mongoDb = mongoClient.db('soma_nutricion');
-      useMongo = true;
-      console.log('Successfully connected to MongoDB Atlas!');
+export async function initDatabase(): Promise<void> {
+  if (dbInitialized) return;
+  if (dbInitializingPromise) return dbInitializingPromise;
 
-      // Ensure native admins exist in MongoDB
-      const usersCol = mongoDb.collection('users');
-      for (const admin of NATIVE_ADMINS) {
-        const exists = await usersCol.findOne({ correo: admin.correo });
-        if (!exists) {
-          await usersCol.insertOne(admin);
-          console.log(`Pre-seeded Admin in MongoDB: ${admin.correo}`);
+  dbInitializingPromise = (async () => {
+    const uri = process.env.MONGODB_URI;
+    if (uri) {
+      try {
+        console.log('Connecting to MongoDB Atlas...');
+        mongoClient = new MongoClient(uri);
+        await mongoClient.connect();
+        mongoDb = mongoClient.db('soma_nutricion');
+        useMongo = true;
+        console.log('Successfully connected to MongoDB Atlas!');
+
+        // Ensure collections and migration
+        const usersCol = colUsers();
+        const patientsCol = colPatients();
+
+        const userCount = await usersCol.countDocuments();
+        const patientCount = await patientsCol.countDocuments();
+
+        let localData: LocalDatabase | null = null;
+        if (fs.existsSync(LOCAL_DB_PATH)) {
+          try {
+            const raw = fs.readFileSync(LOCAL_DB_PATH, 'utf-8');
+            localData = JSON.parse(raw);
+          } catch (e) {
+            console.error('Error reading local JSON for migration:', e);
+          }
         }
+
+        // Migrate users
+        if (userCount === 0) {
+          const usersToInsert = localData?.users || NATIVE_ADMINS;
+          for (const user of usersToInsert) {
+            const exists = await usersCol.findOne({ correo: user.correo });
+            if (!exists) {
+              await usersCol.insertOne({ _id: user.id, ...user });
+            }
+          }
+          console.log('Users migrated/seeded to MongoDB.');
+        } else {
+          // Just make sure native admins exist
+          for (const admin of NATIVE_ADMINS) {
+            const exists = await usersCol.findOne({ correo: admin.correo });
+            if (!exists) {
+              await usersCol.insertOne({ _id: admin.id, ...admin });
+              console.log(`Pre-seeded Admin in MongoDB: ${admin.correo}`);
+            }
+          }
+        }
+
+        // Migrate patients
+        if (patientCount === 0) {
+          const patientsToInsert = localData?.patients || getSamplePatients();
+          for (const p of patientsToInsert) {
+            await patientsCol.insertOne({ _id: p.id, ...p });
+          }
+          console.log('Patients migrated/seeded to MongoDB.');
+        }
+
+        dbInitialized = true;
+        return;
+      } catch (err) {
+        console.error('Failed to connect to MongoDB Atlas, falling back to local JSON file storage.', err);
       }
-      return;
-    } catch (err) {
-      console.error('Failed to connect to MongoDB Atlas, falling back to local JSON file storage.', err);
     }
-  }
 
-  // Fallback Local File DB initialization
-  useMongo = false;
-  if (!fs.existsSync(LOCAL_DB_PATH)) {
-    const initialDb: LocalDatabase = {
-      users: [...NATIVE_ADMINS],
-      patients: getSamplePatients(),
-      verificationCodes: []
-    };
-    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(initialDb, null, 2), 'utf-8');
-    console.log(`Local file database created at ${LOCAL_DB_PATH} with pre-seeded admins.`);
-  } else {
-    // Read and verify native admins are present
-    try {
-      const raw = fs.readFileSync(LOCAL_DB_PATH, 'utf-8');
-      const data: LocalDatabase = JSON.parse(raw);
-      let modified = false;
-      for (const admin of NATIVE_ADMINS) {
-        if (!data.users.find(u => u.correo === admin.correo)) {
-          data.users.push(admin);
-          modified = true;
-        }
-      }
-      if (modified) {
-        fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
-      }
-    } catch (e) {
-      console.error('Error reading local JSON file, resetting storage...', e);
+    // Fallback Local File DB initialization
+    useMongo = false;
+    if (!fs.existsSync(LOCAL_DB_PATH)) {
       const initialDb: LocalDatabase = {
         users: [...NATIVE_ADMINS],
         patients: getSamplePatients(),
         verificationCodes: []
       };
       fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(initialDb, null, 2), 'utf-8');
+      console.log(`Local file database created at ${LOCAL_DB_PATH} with pre-seeded admins.`);
+    } else {
+      // Read and verify native admins are present
+      try {
+        const raw = fs.readFileSync(LOCAL_DB_PATH, 'utf-8');
+        const data: LocalDatabase = JSON.parse(raw);
+        let modified = false;
+        for (const admin of NATIVE_ADMINS) {
+          if (!data.users.find(u => u.correo === admin.correo)) {
+            data.users.push(admin);
+            modified = true;
+          }
+        }
+        if (modified) {
+          fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
+        }
+      } catch (e) {
+        console.error('Error reading local JSON file, resetting storage...', e);
+        const initialDb: LocalDatabase = {
+          users: [...NATIVE_ADMINS],
+          patients: getSamplePatients(),
+          verificationCodes: []
+        };
+        fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(initialDb, null, 2), 'utf-8');
+      }
     }
-  }
+    dbInitialized = true;
+  })();
+
+  return dbInitializingPromise;
 }
 
 // Read database contents helper (for local)
@@ -126,7 +189,7 @@ function writeLocalDb(data: LocalDatabase) {
 // 1. Users Operations
 export async function getUsers(): Promise<User[]> {
   if (useMongo && mongoDb) {
-    const users = await mongoDb.collection('users').find({}).toArray();
+    const users = await colUsers().find({}).toArray();
     return users.map(u => ({ ...u, id: u._id.toString() } as unknown as User));
   } else {
     return readLocalDb().users;
@@ -136,7 +199,7 @@ export async function getUsers(): Promise<User[]> {
 export async function getUserByEmail(email: string): Promise<User | null> {
   const emailLower = email.toLowerCase().trim();
   if (useMongo && mongoDb) {
-    const user = await mongoDb.collection('users').findOne({ correo: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
+    const user = await colUsers().findOne({ correo: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
     if (!user) return null;
     return { ...user, id: user._id.toString() } as unknown as User;
   } else {
@@ -147,8 +210,13 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 
 export async function createUser(user: User): Promise<User> {
   if (useMongo && mongoDb) {
-    const res = await mongoDb.collection('users').insertOne({ ...user });
-    return { ...user, id: res.insertedId.toString() };
+    // Check if user already exists
+    const existing = await colUsers().findOne({ correo: user.correo });
+    if (existing) {
+      throw new Error('El correo ya está registrado');
+    }
+    await colUsers().insertOne({ _id: user.id, ...user });
+    return user;
   } else {
     const db = readLocalDb();
     // Prevent duplicate
@@ -164,11 +232,11 @@ export async function createUser(user: User): Promise<User> {
 export async function updateUser(id: string, updates: Partial<User>): Promise<User | null> {
   if (useMongo && mongoDb) {
     const { id: _, ...updateFields } = updates;
-    await mongoDb.collection('users').updateOne(
-      { _id: id as any }, // Or ObjectId if matching MongoDB native ids
+    await colUsers().updateOne(
+      { _id: id },
       { $set: updateFields }
     );
-    const user = await mongoDb.collection('users').findOne({ _id: id as any });
+    const user = await colUsers().findOne({ _id: id });
     return user ? ({ ...user, id: user._id.toString() } as unknown as User) : null;
   } else {
     const db = readLocalDb();
@@ -182,7 +250,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
 
 export async function deleteUser(id: string): Promise<boolean> {
   if (useMongo && mongoDb) {
-    const res = await mongoDb.collection('users').deleteOne({ _id: id as any });
+    const res = await colUsers().deleteOne({ _id: id });
     return res.deletedCount > 0;
   } else {
     const db = readLocalDb();
@@ -196,8 +264,8 @@ export async function deleteUser(id: string): Promise<boolean> {
 // 2. Verification Codes Operations
 export async function createVerificationCode(item: VerificationCode): Promise<VerificationCode> {
   if (useMongo && mongoDb) {
-    await mongoDb.collection('verification_codes').deleteOne({ correo: item.correo });
-    await mongoDb.collection('verification_codes').insertOne({ ...item });
+    await colVerificationCodes().deleteOne({ correo: item.correo });
+    await colVerificationCodes().insertOne({ _id: item.id, ...item });
     return item;
   } else {
     const db = readLocalDb();
@@ -213,7 +281,7 @@ export async function getVerificationCode(email: string, code: string): Promise<
   const emailLower = email.toLowerCase().trim();
   const codeTrimmed = code.trim();
   if (useMongo && mongoDb) {
-    const item = await mongoDb.collection('verification_codes').findOne({
+    const item = await colVerificationCodes().findOne({
       correo: { $regex: new RegExp(`^${emailLower}$`, 'i') },
       codigo: codeTrimmed
     });
@@ -228,7 +296,7 @@ export async function getVerificationCode(email: string, code: string): Promise<
 
 export async function getVerificationCodesList(): Promise<VerificationCode[]> {
   if (useMongo && mongoDb) {
-    const items = await mongoDb.collection('verification_codes').find({}).toArray();
+    const items = await colVerificationCodes().find({}).toArray();
     return items as unknown as VerificationCode[];
   } else {
     return readLocalDb().verificationCodes;
@@ -237,7 +305,7 @@ export async function getVerificationCodesList(): Promise<VerificationCode[]> {
 
 export async function deleteVerificationCode(email: string): Promise<void> {
   if (useMongo && mongoDb) {
-    await mongoDb.collection('verification_codes').deleteMany({ correo: { $regex: new RegExp(`^${email}$`, 'i') } });
+    await colVerificationCodes().deleteMany({ correo: { $regex: new RegExp(`^${email}$`, 'i') } });
   } else {
     const db = readLocalDb();
     db.verificationCodes = db.verificationCodes.filter(vc => vc.correo.toLowerCase() !== email.toLowerCase());
@@ -248,7 +316,7 @@ export async function deleteVerificationCode(email: string): Promise<void> {
 // 3. Patients Operations
 export async function getPatients(): Promise<Patient[]> {
   if (useMongo && mongoDb) {
-    const patients = await mongoDb.collection('patients').find({}).toArray();
+    const patients = await colPatients().find({}).toArray();
     return patients.map(p => ({ ...p, id: p._id.toString() } as unknown as Patient));
   } else {
     return readLocalDb().patients;
@@ -257,7 +325,7 @@ export async function getPatients(): Promise<Patient[]> {
 
 export async function getPatientById(id: string): Promise<Patient | null> {
   if (useMongo && mongoDb) {
-    const patient = await mongoDb.collection('patients').findOne({ _id: id as any });
+    const patient = await colPatients().findOne({ _id: id });
     return patient ? ({ ...patient, id: patient._id.toString() } as unknown as Patient) : null;
   } else {
     return readLocalDb().patients.find(p => p.id === id) || null;
@@ -266,8 +334,8 @@ export async function getPatientById(id: string): Promise<Patient | null> {
 
 export async function createPatient(patient: Patient): Promise<Patient> {
   if (useMongo && mongoDb) {
-    const res = await mongoDb.collection('patients').insertOne({ ...patient });
-    return { ...patient, id: res.insertedId.toString() };
+    await colPatients().insertOne({ _id: patient.id, ...patient });
+    return patient;
   } else {
     const db = readLocalDb();
     db.patients.push(patient);
@@ -279,11 +347,11 @@ export async function createPatient(patient: Patient): Promise<Patient> {
 export async function updatePatient(id: string, updates: Partial<Patient>): Promise<Patient | null> {
   if (useMongo && mongoDb) {
     const { id: _, ...updateFields } = updates;
-    await mongoDb.collection('patients').updateOne(
-      { _id: id as any },
+    await colPatients().updateOne(
+      { _id: id },
       { $set: updateFields }
     );
-    const patient = await mongoDb.collection('patients').findOne({ _id: id as any });
+    const patient = await colPatients().findOne({ _id: id });
     return patient ? ({ ...patient, id: patient._id.toString() } as unknown as Patient) : null;
   } else {
     const db = readLocalDb();
@@ -297,7 +365,7 @@ export async function updatePatient(id: string, updates: Partial<Patient>): Prom
 
 export async function deletePatient(id: string): Promise<boolean> {
   if (useMongo && mongoDb) {
-    const res = await mongoDb.collection('patients').deleteOne({ _id: id as any });
+    const res = await colPatients().deleteOne({ _id: id });
     return res.deletedCount > 0;
   } else {
     const db = readLocalDb();
