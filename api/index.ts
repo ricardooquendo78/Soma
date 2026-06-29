@@ -1,7 +1,7 @@
 export default async function handler(req: any, res: any) {
   try {
-    // Dynamically import the Express app with explicit file extension to avoid directory resolution conflict
-    const appModule = await import('../server.ts');
+    // Import using the compiled .js extension to avoid ESM directory import conflicts
+    const appModule = await import('../server.js');
     const app = appModule.default;
     return app(req, res);
   } catch (err: any) {
