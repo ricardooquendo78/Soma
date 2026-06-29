@@ -18,7 +18,7 @@ import {
   updatePatient,
   deletePatient,
   isConnectedToMongo
-} from './server/db';
+} from './server/db.js';
 import { Patient, User, VerificationCode } from './src/types';
 
 dotenv.config();
