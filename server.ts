@@ -290,6 +290,13 @@ app.delete('/api/patients/:id', async (req, res) => {
 });
 
 
+// Global error handler to return JSON instead of HTML/text stack trace
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('[SERVER ERROR]', err);
+  res.status(500).json({ error: err.message || 'Error interno del servidor' });
+});
+
+
 // INIT APP AND ATTACH MIDDLEWARES
 async function startServer() {
   // Initialize Database Wrapper (also handled by middleware, but good to run eagerly on startup)
