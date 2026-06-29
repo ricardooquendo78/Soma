@@ -3,7 +3,9 @@ import fs from 'fs';
 import path from 'path';
 import { User, Patient, VerificationCode } from '../src/types';
 
-const LOCAL_DB_PATH = path.join(process.cwd(), 'soma_db.json');
+const LOCAL_DB_PATH = process.env.VERCEL
+  ? path.join('/tmp', 'soma_db.json')
+  : path.join(process.cwd(), 'soma_db.json');
 
 // Hardcoded Administrator accounts required by the user
 const NATIVE_ADMINS: User[] = [
