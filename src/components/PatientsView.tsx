@@ -82,7 +82,7 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
           className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 shadow-md shadow-blue-100 transition-all text-sm space-x-2 cursor-pointer self-start md:self-auto"
         >
           <Plus className="h-5 w-5" />
-          <span>+ Nuevo Paciente</span>
+          <span>Nuevo Paciente</span>
         </button>
       </div>
 
@@ -112,7 +112,7 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
           <Baby className="h-16 w-16 text-slate-300 mx-auto mb-4 animate-pulse" />
           <h3 className="text-lg font-semibold text-slate-700">No se encontraron pacientes</h3>
           <p className="text-sm text-slate-400 mt-2 max-w-sm mx-auto">
-            {searchTerm ? 'Prueba refinando los criterios de búsqueda' : 'Registra tu primer paciente utilizando el botón de "+ Nuevo Paciente" para comenzar'}
+            {searchTerm ? 'Prueba refinando los criterios de búsqueda' : 'Registra tu primer paciente utilizando el botón de \"Nuevo Paciente\" para comenzar'}
           </p>
         </div>
       ) : (

@@ -215,7 +215,7 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
               className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-all text-sm space-x-2 cursor-pointer shadow-md shadow-blue-100"
             >
               <Plus className="h-4 w-4" />
-              <span>+ Nueva Evaluación</span>
+              <span>Nueva Evaluación</span>
             </button>
           </div>
         </div>
@@ -267,7 +267,7 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                 <div className="text-center py-10 border border-dashed border-slate-100 rounded-2xl text-slate-400">
                   <TrendingUp className="h-8 w-8 mx-auto mb-2 text-slate-300" />
                   <p className="text-xs font-medium">Sin evaluaciones registradas</p>
-                  <p className="text-[10px] mt-1">Pulsa en "+ Nueva Evaluación" para registrar datos</p>
+                  <p className="text-[10px] mt-1">Pulsa en "Nueva Evaluación" para registrar datos</p>
                 </div>
               ) : (
                 <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1" id="eval_list_scroller">
