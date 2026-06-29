@@ -95,7 +95,7 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
 
     try {
       // 1. Perform clinical calculations on client-side dynamically using WHO parameters
-      const evalData = calculateEvaluation(
+      const evalData = await calculateEvaluation(
         patient.fechaNacimiento,
         patient.genero,
         w,

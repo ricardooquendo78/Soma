@@ -2,6 +2,7 @@ import React from 'react';
 import { Evaluation, Patient } from '../types';
 import { ageToTotalMonths, calculateChronologicalAge, interpolateWHO, heightForAgeBoys, heightForAgeGirls, headCircumferenceBoys, headCircumferenceGirls } from '../lib/whoCalculations';
 import { ShieldAlert, TrendingUp, Sparkles, Heart, X, Maximize2, Scale, Calendar, Activity } from 'lucide-react';
+import { loadTable, lookupLms } from '@pedi-growth/core';
 
 interface SomaChartsProps {
   patient: Patient;
@@ -11,11 +12,25 @@ interface SomaChartsProps {
 
 export default function SomaCharts({ patient, evaluation, isPrintView = false }: SomaChartsProps) {
   const [activeModalChart, setActiveModalChart] = React.useState<'pesoTalla' | 'tallaEdad' | 'perimetroCefalico' | null>(null);
+  const [wflTable, setWflTable] = React.useState<any[] | null>(null);
+  const [wfhTable, setWfhTable] = React.useState<any[] | null>(null);
 
   const age = calculateChronologicalAge(patient.fechaNacimiento, evaluation.fecha);
   const totalMonths = ageToTotalMonths(age);
   const isMale = patient.genero === 'niño';
   const isUnder2 = totalMonths < 24;
+
+  React.useEffect(() => {
+    Promise.all([
+      loadTable(isMale ? 'wfl-boys' : 'wfl-girls'),
+      loadTable(isMale ? 'wfh-boys' : 'wfh-girls')
+    ]).then(([wfl, wfh]) => {
+      setWflTable(wfl);
+      setWfhTable(wfh);
+    }).catch(err => {
+      console.error('Error loading LMS tables for charts', err);
+    });
+  }, [isMale]);
 
   // 1. ARM CIRCUMFERENCE ALERT (MUAC)
   const showArmAlert = evaluation.perimetroBrazo > 0 && evaluation.perimetroBrazo < 11.5;
@@ -33,22 +48,49 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
   const minW_pt = isUnder2 ? 1.5 : 5;
   const maxW_pt = isUnder2 ? 22 : 25;
 
+  const activeTable = isUnder2 ? wflTable : wfhTable;
   const dataPoints_pt: { height: number; sd3Neg: number; sd2Neg: number; sd0: number; sd2Pos: number; sd3Pos: number }[] = [];
   const step_pt = (maxH_pt - minH_pt) / 10;
   for (let i = 0; i <= 10; i++) {
     const h = minH_pt + i * step_pt;
-    const median = isMale 
+    let median = isMale 
       ? (isUnder2 ? (h * 0.24 - 8.3) : (h * 0.27 - 10.0))
       : (isUnder2 ? (h * 0.23 - 8.1) : (h * 0.28 - 11.0));
     const sdPercent = isUnder2 ? 0.11 : 0.12;
     const sd = median * sdPercent;
+
+    let sd3Neg = Math.max(0.5, median - 3 * sd);
+    let sd2Neg = Math.max(1.0, median - 2 * sd);
+    let sd0 = median;
+    let sd2Pos = median + 2 * sd;
+    let sd3Pos = median + 3 * sd;
+
+    if (activeTable) {
+      const lms = lookupLms(activeTable, h);
+      if (lms) {
+        sd0 = lms.M;
+        const lmsToValue = (z: number) => {
+          if (lms.L === 0) {
+            return lms.M * Math.exp(lms.S * z);
+          }
+          const val = 1 + lms.L * lms.S * z;
+          if (val <= 0) return 0.1;
+          return lms.M * Math.pow(val, 1 / lms.L);
+        };
+        sd3Neg = lmsToValue(-3);
+        sd2Neg = lmsToValue(-2);
+        sd2Pos = lmsToValue(2);
+        sd3Pos = lmsToValue(3);
+      }
+    }
+
     dataPoints_pt.push({
       height: h,
-      sd3Neg: Math.max(0.5, median - 3 * sd),
-      sd2Neg: Math.max(1.0, median - 2 * sd),
-      sd0: median,
-      sd2Pos: median + 2 * sd,
-      sd3Pos: median + 3 * sd,
+      sd3Neg,
+      sd2Neg,
+      sd0,
+      sd2Pos,
+      sd3Pos,
     });
   }
 
@@ -551,13 +593,28 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
       svgRenderer = renderWeightForHeightSVG;
 
       const h = evaluation.talla;
-      const median = isMale 
+      let median = evaluation.pesoIdealCalculado || (isMale 
         ? (isUnder2 ? (h * 0.24 - 8.3) : (h * 0.27 - 10.0))
-        : (isUnder2 ? (h * 0.23 - 8.1) : (h * 0.28 - 11.0));
-      const sdPercent = isUnder2 ? 0.11 : 0.12;
-      const sd = median * sdPercent;
-      const valMin2SD = median - 2 * sd;
-      const valPlus2SD = median + 2 * sd;
+        : (isUnder2 ? (h * 0.23 - 8.1) : (h * 0.28 - 11.0)));
+      let valMin2SD = median - 2 * (median * (isUnder2 ? 0.11 : 0.12));
+      let valPlus2SD = median + 2 * (median * (isUnder2 ? 0.11 : 0.12));
+
+      if (activeTable) {
+        const lms = lookupLms(activeTable, h);
+        if (lms) {
+          median = lms.M;
+          const lmsToValue = (z: number) => {
+            if (lms.L === 0) {
+              return lms.M * Math.exp(lms.S * z);
+            }
+            const val = 1 + lms.L * lms.S * z;
+            if (val <= 0) return 0.1;
+            return lms.M * Math.pow(val, 1 / lms.L);
+          };
+          valMin2SD = lmsToValue(-2);
+          valPlus2SD = lmsToValue(2);
+        }
+      }
       
       rangeText = `entre ${valMin2SD.toFixed(1)} kg y ${valPlus2SD.toFixed(1)} kg`;
       medianText = `${median.toFixed(1)} kg`;

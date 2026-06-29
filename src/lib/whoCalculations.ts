@@ -1,4 +1,5 @@
 import { ChronologicalAge, Evaluation } from '../types';
+import { calculateZScore, loadTable, lookupLms } from '@pedi-growth/core';
 
 // Calculates the exact chronological age in years, months, and days
 export function calculateChronologicalAge(birthdateStr: string, targetDateStr?: string): ChronologicalAge {
@@ -240,23 +241,22 @@ export const headCircumferenceGirls: Record<number, number[]> = {
 };
 
 // Calculates Z-score and provides classification for: Perimetro Cefalico para la Edad
-export function evaluateHeadCircumference(
+export async function evaluateHeadCircumference(
   genero: 'niño' | 'niña',
-  ageMonths: number,
+  ageInDays: number,
   perimetroCefalico: number
-): { zScore: number; classification: string } {
-  const dataset = genero === 'niño' ? headCircumferenceBoys : headCircumferenceGirls;
-  const limits = interpolateWHO(ageMonths, dataset); // [ -2SD, -1SD, Median, +1SD, +2SD ]
+): Promise<{ zScore: number; classification: string }> {
+  const result = await calculateZScore({
+    indicator: 'head-circumference-for-age',
+    sex: genero === 'niño' ? 'male' : 'female',
+    ageInDays,
+    measurement: perimetroCefalico
+  });
   
-  const median = limits[2];
-  // Standard deviation (SD) approximation
-  const sd = (limits[4] - limits[2]) / 2;
-  const zScore = (perimetroCefalico - median) / sd;
+  const zScore = result ? result.zScore : 0;
 
   let classification = 'Normal';
-  if (zScore > 2) {
-    classification = 'factor de riesgo para el neurodesarrollo';
-  } else if (zScore < -2) {
+  if (zScore > 2 || zScore < -2) {
     classification = 'factor de riesgo para el neurodesarrollo';
   }
 
@@ -264,17 +264,19 @@ export function evaluateHeadCircumference(
 }
 
 // Calculates Z-score and classification for: Talla para la Edad
-export function evaluateHeightForAge(
+export async function evaluateHeightForAge(
   genero: 'niño' | 'niña',
-  ageMonths: number,
+  ageInDays: number,
   talla: number
-): { zScore: number; classification: string } {
-  const dataset = genero === 'niño' ? heightForAgeBoys : heightForAgeGirls;
-  const limits = interpolateWHO(ageMonths, dataset);
+): Promise<{ zScore: number; classification: string }> {
+  const result = await calculateZScore({
+    indicator: 'length-height-for-age',
+    sex: genero === 'niño' ? 'male' : 'female',
+    ageInDays,
+    measurement: talla
+  });
   
-  const median = limits[2];
-  const sd = (limits[4] - limits[2]) / 2;
-  const zScore = (talla - median) / sd;
+  const zScore = result ? result.zScore : 0;
 
   let classification = 'talla adecuada para la edad';
   if (zScore >= -1) {
@@ -289,21 +291,45 @@ export function evaluateHeightForAge(
 }
 
 // Calculates Z-score and classification for: Peso para la Talla
-export function evaluateWeightForHeight(
+export async function evaluateWeightForHeight(
   genero: 'niño' | 'niña',
-  ageMonths: number,
+  ageInDays: number,
   talla: number,
   peso: number
-): { zScore: number; classification: string; idealWeight: number } {
-  const idealWeight = getIdealWeight(genero, ageMonths, talla);
+): Promise<{ zScore: number; classification: string; idealWeight: number }> {
+  const sex = genero === 'niño' ? 'male' : 'female';
+  const isUnder2 = ageInDays < 730.5;
+  const indicator = isUnder2 ? 'weight-for-length' : 'weight-for-height';
+
+  const result = await calculateZScore({
+    indicator,
+    sex,
+    lengthHeight: talla,
+    measurement: peso
+  });
   
-  // Approximate standard deviation (approx 11% for infants, 12% for older children)
-  const sdPercent = ageMonths < 24 ? 0.11 : 0.12;
-  const sd = idealWeight * sdPercent;
-  const zScore = (peso - idealWeight) / sd;
+  const zScore = result ? result.zScore : 0;
+
+  const tableName = isUnder2 
+    ? (sex === 'male' ? 'wfl-boys' : 'wfl-girls') 
+    : (sex === 'male' ? 'wfh-boys' : 'wfh-girls');
+    
+  let idealWeight = 0;
+  try {
+    const table = await loadTable(tableName);
+    const lms = lookupLms(table, talla);
+    if (lms) {
+      idealWeight = lms.M;
+    }
+  } catch (err) {
+    console.error('Error loading LMS table for weight ideal calculation', err);
+  }
+
+  if (idealWeight === 0) {
+    idealWeight = getIdealWeight(genero, ageInDays / 30.4375, talla);
+  }
 
   let classification = 'peso adecuado para la talla';
-
   if (zScore > 3) {
     classification = 'obesidad';
   } else if (zScore > 2 && zScore <= 3) {
@@ -330,8 +356,6 @@ export function calculateEnergyRequirements(
   pesoIdeal: number,
   pesoClassification: string
 ): { calories: number; usedWeight: number; weightType: 'actual' | 'ideal' } {
-  // If underweight or adequate weight, use actual weight.
-  // If risk of overweight, overweight or obese, use ideal weight.
   const useIdeal = ['riesgo de sobrepeso', 'sobrepeso', 'obesidad'].includes(pesoClassification);
   const usedWeight = useIdeal ? pesoIdeal : pesoActual;
   const weightType = useIdeal ? 'ideal' : 'actual';
@@ -351,20 +375,24 @@ export function calculateEnergyRequirements(
 }
 
 // Unified orchestrator to run full evaluations on patient measurements
-export function calculateEvaluation(
+export async function calculateEvaluation(
   birthdateStr: string,
   genero: 'niño' | 'niña',
   peso: number,
   talla: number,
   perimetroCefalico: number,
   perimetroBrazo: number
-): Evaluation {
+): Promise<Evaluation> {
   const age = calculateChronologicalAge(birthdateStr);
   const totalMonths = ageToTotalMonths(age);
+  
+  const birthDate = new Date(birthdateStr);
+  const targetDate = new Date();
+  const ageInDays = Math.max(0, Math.floor((targetDate.getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24)));
 
-  const hcResult = evaluateHeadCircumference(genero, totalMonths, perimetroCefalico);
-  const hfaResult = evaluateHeightForAge(genero, totalMonths, talla);
-  const wfhResult = evaluateWeightForHeight(genero, totalMonths, talla, peso);
+  const hcResult = await evaluateHeadCircumference(genero, ageInDays, perimetroCefalico);
+  const hfaResult = await evaluateHeightForAge(genero, ageInDays, talla);
+  const wfhResult = await evaluateWeightForHeight(genero, ageInDays, talla, peso);
   const energyResult = calculateEnergyRequirements(genero, peso, wfhResult.idealWeight, wfhResult.classification);
 
   return {
