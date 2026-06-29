@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { calculateChronologicalAge } from '../lib/whoCalculations';
-import { User as UserIcon, Save, Calendar, Phone, Mail, CheckCircle2, UserCheck, Shield } from 'lucide-react';
+import { User as UserIcon, Save, Calendar, Phone, Mail, CheckCircle2, UserCheck, Shield, Camera, Trash2 } from 'lucide-react';
 
 interface ProfileViewProps {
   user: User;
@@ -22,6 +22,25 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
     const idx = (user.nombre.charCodeAt(0) + user.apellidos.charCodeAt(0)) % AVATARS.length;
     return AVATARS[idx];
   });
+  const [imagenPerfil, setImagenPerfil] = useState(user.imagenPerfil || '');
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert('La imagen es demasiado grande. Por favor selecciona una menor a 2MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        setImagenPerfil(event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -43,7 +62,8 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
           nombre,
           apellidos,
           fechaNacimiento,
-          telefono
+          telefono,
+          imagenPerfil
         })
       });
       const data = await res.json();
@@ -77,9 +97,34 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
         {/* Profile Card Summary */}
         <div className="md:col-span-4 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm text-center space-y-4">
           <div className="relative inline-block mx-auto">
-            <div className="h-24 w-24 rounded-full bg-blue-50 border-4 border-blue-100 flex items-center justify-center text-5xl">
-              {avatar}
+            <div className="h-24 w-24 rounded-full bg-blue-50 border-4 border-blue-100 flex items-center justify-center text-5xl overflow-hidden relative shadow-inner">
+              {imagenPerfil ? (
+                <img src={imagenPerfil} alt="Perfil" className="h-full w-full object-cover" />
+              ) : (
+                avatar
+              )}
             </div>
+            {/* Camera icon overlay */}
+            <label className="absolute bottom-0 right-0 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full cursor-pointer shadow-md shadow-blue-300 border border-white flex items-center justify-center transition-all transform hover:scale-110 active:scale-95" title="Subir foto de perfil">
+              <Camera className="h-3.5 w-3.5" />
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                onChange={handleImageUpload} 
+              />
+            </label>
+            {/* Delete custom photo button */}
+            {imagenPerfil && (
+              <button
+                type="button"
+                onClick={() => setImagenPerfil('')}
+                className="absolute top-0 right-0 p-1 bg-red-100 hover:bg-red-200 text-red-600 rounded-full cursor-pointer border border-white flex items-center justify-center transition-all transform hover:scale-110 shadow-sm"
+                title="Eliminar foto de perfil"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
           </div>
 
           <div>

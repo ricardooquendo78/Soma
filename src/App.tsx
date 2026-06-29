@@ -7,6 +7,7 @@ import ProfileView from './components/ProfileView';
 import HistoryView from './components/HistoryView';
 import ConfigView from './components/ConfigView';
 import { UserCheck, Baby, History, Settings, LogOut, Shield } from 'lucide-react';
+import somaLogo from '@/assets/images/Logo-Soma.png';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -108,9 +109,7 @@ export default function App() {
             
             {/* Logo brand */}
             <div className="flex items-center space-x-3">
-              <div className="h-9 w-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-xl shadow-md shadow-blue-100">
-                S
-              </div>
+              <img src={somaLogo} alt="SOMA Logo" className="h-9 w-auto object-contain" />
               <div>
                 <span className="text-lg font-black tracking-tight text-slate-800 font-sans">SOMA</span>
                 <span className="hidden sm:inline-block ml-2 text-xs font-semibold text-slate-400 border-l border-slate-200 pl-2">
@@ -161,8 +160,12 @@ export default function App() {
                     {user.rol}
                   </span>
                 </div>
-                <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-xs text-slate-600 border border-slate-200">
-                  {user.nombre.charAt(0)}
+                <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 overflow-hidden shrink-0">
+                  {user.imagenPerfil ? (
+                    <img src={user.imagenPerfil} alt="Perfil" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="font-bold text-xs text-slate-600">{user.nombre.charAt(0)}</span>
+                  )}
                 </div>
               </div>
 

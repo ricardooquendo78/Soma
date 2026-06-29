@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { KeyRound, Mail, UserCheck, Phone, Calendar, ClipboardList, ShieldAlert, ArrowRight, CheckCircle2 } from 'lucide-react';
+import somaLogo from '@/assets/images/Logo-Soma.png';
 
 interface AuthModalProps {
   onLoginSuccess: (user: User, token: string) => void;
@@ -131,10 +132,8 @@ export default function AuthModal({ onLoginSuccess }: AuthModalProps) {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8" id="auth_container">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center">
-          <div className="h-16 w-16 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-bold text-3xl shadow-lg shadow-blue-100">
-            S
-          </div>
+        <div className="flex justify-center mb-2">
+          <img src={somaLogo} alt="SOMA Logo" className="h-16 w-auto object-contain" />
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-800 tracking-tight">
           SOMA

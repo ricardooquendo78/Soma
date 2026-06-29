@@ -21,8 +21,12 @@ import {
   ChevronRight,
   ShieldCheck,
   Zap,
-  Info
+  Info,
+  FileText,
+  Printer,
+  Download
 } from 'lucide-react';
+import udeaLogo from '@/assets/images/Logo-udea.png';
 
 interface PatientDetailsProps {
   patient: Patient;
@@ -35,6 +39,8 @@ type TabType = 'antropometria' | 'requerimientos' | 'fca' | 'recordatorio' | 'pl
 export default function PatientDetails({ patient, onBack, onUpdatePatient }: PatientDetailsProps) {
   const [activeTab, setActiveTab] = useState<TabType>('antropometria');
   const [showAddEvalModal, setShowAddEvalModal] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [pdfNotes, setPdfNotes] = useState('');
   
   // New Evaluation Form State
   const [peso, setPeso] = useState('');
@@ -170,6 +176,452 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
     }
   };
 
+  const renderPdfPreviewModal = () => {
+    if (!showPdfPreview || !activeEvalForCharts) return null;
+
+    const storedUser = localStorage.getItem('soma_user');
+    const loggedUser = storedUser ? JSON.parse(storedUser) : null;
+    const currentDateStr = new Date().toLocaleDateString('es-CO', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    const isMale = patient.genero === 'niño';
+
+    const getPdfClinicalAdvice = (type: 'pesoTalla' | 'tallaEdad' | 'perimetroCefalico', classification: string, z: number) => {
+      if (type === 'pesoTalla') {
+        if (z > 2) {
+          return 'El paciente se encuentra en rango de sobrepeso u obesidad para su estatura. Se recomienda revisar el consumo calórico diario, priorizar el peso ideal para la planificación dietética, evitar alimentos ultraprocesados y grasas saturadas, y aumentar la actividad física activa diaria.';
+        } else if (z > 1) {
+          return 'El paciente presenta riesgo de sobrepeso. Se aconseja monitorear las porciones de carbohidratos simples y grasas en el FCA y fomentar hábitos saludables de alimentación complementaria o familiar.';
+        } else if (z < -2) {
+          return '¡Alerta clínica! El paciente presenta desnutrición aguda moderada o severa. Requiere seguimiento médico/nutricional prioritario. Se aconseja iniciar pauta de recuperación nutricional y evaluar la ingesta calórica y la frecuencia de tomas/comidas.';
+        } else if (z < -1) {
+          return 'El paciente presenta riesgo de desnutrición aguda. Es importante revisar la ingesta energética diaria, la aceptación de alimentos sólidos y la presencia de episodios infecciosos recientes.';
+        } else {
+          return 'Relación peso/talla adecuada. El desarrollo ponderal se encuentra dentro del rango de normalidad de la OMS. Se aconseja mantener el plan de alimentación actual y las visitas de control de crecimiento.';
+        }
+      } else if (type === 'tallaEdad') {
+        if (z < -2) {
+          return '¡Alerta clínica! El paciente presenta talla baja o retraso en el crecimiento lineal. Se aconseja evaluar deficiencias de micronutrientes (como zinc o hierro), investigar causas secundarias y fortificar la alimentación.';
+        } else if (z < -1) {
+          return 'El paciente presenta riesgo de talla baja. Se recomienda vigilar la velocidad de crecimiento, asegurar una ingesta de proteínas de alto valor biológico y micronutrientes esenciales, y repetir la medición en el próximo control.';
+        } else {
+          return 'Crecimiento en talla adecuado para la edad. El desarrollo lineal del paciente se encuentra dentro de los parámetros esperados de la OMS.';
+        }
+      } else {
+        if (z > 2) {
+          return 'El perímetro cefálico está por encima de la media (+2 SD), lo que puede representar macrocefalia. Se sugiere valoración por pediatría para descartar anomalías estructurales o variantes familiares.';
+        } else if (z < -2) {
+          return 'El perímetro cefálico se encuentra por debajo de la media (-2 SD), lo que puede indicar microcefalia o restricción del desarrollo craneal. Se sugiere remitir a valoración pediátrica especializada y estimulación oportuna.';
+        } else {
+          return 'Perímetro cefálico normal. El desarrollo craneal y del sistema nervioso se encuentra dentro de los rangos esperados de la OMS.';
+        }
+      }
+    };
+
+    const printStyles = `
+      @media print {
+        /* Hide all page content except the print modal area */
+        aside, nav, header, #patient_tab_bar, #patient_header_card, #btn_back_patients, #antropometria_panel, .no-print, #global_header, #mobile_navbar {
+          display: none !important;
+        }
+
+        /* Reset body scroll and height */
+        body, html, #root, #root > div, #root > div > div, main#soma_body, #patient_details_panel, #soma_app {
+          height: auto !important;
+          min-height: 0 !important;
+          overflow: visible !important;
+          background: white !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          position: static !important;
+        }
+
+        /* Reset outer modal position and layout */
+        #soma-pdf-modal-wrapper {
+          position: absolute !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: 100% !important;
+          height: auto !important;
+          min-height: 0 !important;
+          background: transparent !important;
+          backdrop-filter: none !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          display: block !important;
+          z-index: auto !important;
+          border: none !important;
+        }
+
+        /* Reset the modal container to print infinite height */
+        #soma-pdf-modal-content {
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          max-width: none !important;
+          width: 100% !important;
+          max-height: none !important;
+          height: auto !important;
+          overflow: visible !important;
+          position: static !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+
+        .soma-pdf-preview-body-wrapper {
+          background: transparent !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          overflow: visible !important;
+          display: block !important;
+          width: 100% !important;
+        }
+
+        #soma-pdf-print-area {
+          display: block !important;
+          width: 21cm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+          border: none !important;
+        }
+
+        /* Printable A4 Page sheets */
+        .page-sheet {
+          border: none !important;
+          box-shadow: none !important;
+          margin: 0 !important;
+          padding: 1.2cm !important;
+          width: 21cm !important;
+          min-height: 29.7cm !important;
+          background: white !important;
+          color: black !important;
+          display: flex !important;
+          flex-direction: column !important;
+          justify-content: space-between !important;
+          page-break-after: always !important;
+          page-break-inside: avoid !important;
+        }
+
+        .page-sheet:last-child {
+          page-break-after: avoid !important;
+        }
+      }
+    `;
+
+    return (
+      <div 
+        id="soma-pdf-modal-wrapper"
+        onClick={() => setShowPdfPreview(false)}
+        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      >
+        <style dangerouslySetInnerHTML={{ __html: printStyles }} />
+        <div 
+          id="soma-pdf-modal-content"
+          className="bg-slate-800 rounded-3xl shadow-2xl max-w-4xl w-full max-h-[96vh] overflow-y-auto border border-slate-700 flex flex-col animate-in fade-in zoom-in-95 duration-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Modal Toolbar (Controls) */}
+          <div className="flex justify-between items-center px-6 py-4 border-b border-slate-700 bg-slate-850 no-print">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <FileText className="h-4 w-4 text-red-400" /> Vista Previa del Reporte PDF (2 Páginas)
+              </h3>
+              <p className="text-[11px] text-slate-400">Simulación del documento A4. Puedes escribir notas específicas en la Página 2 antes de descargar o imprimir.</p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => window.print()}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-all cursor-pointer shadow-md shadow-emerald-900/30 border-none"
+                title="Guarda este reporte en formato PDF"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Descargar PDF</span>
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-all cursor-pointer shadow-md shadow-blue-900/30 border-none"
+                title="Imprime este reporte en papel o PDF"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                <span>Imprimir Reporte</span>
+              </button>
+              <button 
+                onClick={() => setShowPdfPreview(false)}
+                className="p-1.5 bg-slate-700 hover:bg-slate-600 text-slate-350 hover:text-white rounded-full transition-all cursor-pointer border-none"
+              >
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Modal Preview Body (Displays pages vertically) */}
+          <div className="p-6 bg-slate-750 overflow-y-auto flex flex-col items-center space-y-6 soma-pdf-preview-body-wrapper">
+            
+            <div id="soma-pdf-print-area" className="flex flex-col space-y-6 items-center w-full">
+              
+              {/* PAGE 1 */}
+              <div className="bg-white shadow-2xl w-full max-w-[21cm] min-h-[29.7cm] p-10 border border-slate-100 text-slate-800 flex flex-col justify-between font-sans leading-normal page-sheet">
+                <div>
+                  {/* Header (UdeA Logo & Title) */}
+                  <div className="flex justify-between items-start border-b-2 border-emerald-800 pb-3">
+                    <div className="flex items-center space-x-3">
+                      <img src={udeaLogo} alt="Universidad de Antioquia" className="h-20 w-auto shrink-0 object-contain" />
+                      <div className="text-left">
+                        <h1 className="text-sm font-extrabold text-emerald-800 leading-tight uppercase tracking-wider">
+                          Universidad de Antioquia
+                        </h1>
+                        <h2 className="text-[11px] font-bold text-slate-600 leading-none uppercase">
+                          Nutrición y Dietética
+                        </h2>
+                        <p className="text-[9px] text-slate-400 font-medium mt-0.5 uppercase tracking-wide">
+                          SOMA - Sistema de Nutrición Infantil
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-bold text-slate-700">REPORTE NUTRICIONAL</p>
+                      <p className="text-[9px] text-slate-400 mt-0.5 font-mono">{currentDateStr}</p>
+                      <p className="text-[9px] text-slate-400 font-mono leading-none">Medellín, Antioquia</p>
+                    </div>
+                  </div>
+
+                  {/* Professional & Patient Info Section */}
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="bg-emerald-50/20 border border-emerald-100 rounded-xl p-3 text-left">
+                      <h3 className="text-[10px] font-bold text-emerald-800 uppercase tracking-wide border-b border-emerald-100 pb-1 mb-1.5">
+                        Nutricionista Responsable
+                      </h3>
+                      <p className="text-xs font-bold text-slate-800">
+                        {loggedUser ? `${loggedUser.nombre} ${loggedUser.apellidos}` : 'Natalia Hernández'}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                        Registro Profesional: UdeA-ND-{(loggedUser?.id || 'admin').substr(-4).toUpperCase()}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-mono leading-tight">
+                        Tel: {loggedUser?.telefono || '3000000000'} | Correo: {loggedUser?.correo || 'correo@udea.edu.co'}
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-left">
+                      <h3 className="text-[10px] font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-1 mb-1.5">
+                        Datos del Paciente
+                      </h3>
+                      <p className="text-xs font-bold text-slate-800 uppercase">
+                        {patient.nombre}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Género: <span className="font-semibold">{isMale ? 'Masculino' : 'Femenino'}</span>
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-mono leading-tight">
+                        F. Nacimiento: {patient.fechaNacimiento}
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        Edad al evaluar: <span className="font-semibold text-slate-700">{age.years}a {age.months}m {age.days}d</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Measurements Section */}
+                  <div className="mt-4 text-left">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-0.5 mb-1.5">
+                      1. Mediciones Antropométricas Registradas
+                    </h3>
+                    <table className="w-full text-left text-[11px] font-sans border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 uppercase tracking-wider text-[9px] font-bold">
+                          <th className="py-1 px-2.5">Parámetro</th>
+                          <th className="py-1 px-2.5 text-right">Valor</th>
+                          <th className="py-1 px-2.5">Parámetro</th>
+                          <th className="py-1 px-2.5 text-right">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        <tr>
+                          <td className="py-1 px-2.5 font-medium text-slate-500">Peso Corporal</td>
+                          <td className="py-1 px-2.5 text-right font-mono font-bold text-slate-800">{activeEvalForCharts.peso} kg</td>
+                          <td className="py-1 px-2.5 font-medium text-slate-500">Perímetro Cefálico</td>
+                          <td className="py-1 px-2.5 text-right font-mono font-bold text-slate-800">{activeEvalForCharts.perimetroCefalico > 0 ? `${activeEvalForCharts.perimetroCefalico} cm` : 'No medido'}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1 px-2.5 font-medium text-slate-500">Talla / Estatura</td>
+                          <td className="py-1 px-2.5 text-right font-mono font-bold text-slate-800">{activeEvalForCharts.talla} cm</td>
+                          <td className="py-1 px-2.5 font-medium text-slate-500">Perímetro de Brazo</td>
+                          <td className="py-1 px-2.5 text-right font-mono font-bold text-slate-800">{activeEvalForCharts.perimetroBrazo > 0 ? `${activeEvalForCharts.perimetroBrazo} cm` : 'No medido'}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1 px-2.5 font-medium text-slate-500">Pliegue Tricipital</td>
+                          <td className="py-1 px-2.5 text-right font-mono font-bold text-slate-800">{activeEvalForCharts.pliegueTricipital > 0 ? `${activeEvalForCharts.pliegueTricipital} mm` : 'No medido'}</td>
+                          <td className="py-1 px-2.5 font-medium text-slate-500">Pliegue Subescapular</td>
+                          <td className="py-1 px-2.5 text-right font-mono font-bold text-slate-800">{activeEvalForCharts.pliegueSubescapular > 0 ? `${activeEvalForCharts.pliegueSubescapular} mm` : 'No medido'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* WHO Classification Section */}
+                  <div className="mt-4 text-left">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-0.5 mb-1.5">
+                      2. Clasificación del Estado Nutricional (Patrón de Crecimiento OMS)
+                    </h3>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="border border-slate-200 rounded-xl p-2 text-center bg-slate-50/30">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">Peso para la Talla</p>
+                        <p className="text-[11px] font-bold text-slate-800 mt-1 uppercase leading-tight">{activeEvalForCharts.pesoTallaClass}</p>
+                        <p className="text-[9px] text-slate-500 font-mono mt-0.5">Z = {activeEvalForCharts.pesoTallaZ?.toFixed(2)}</p>
+                      </div>
+                      <div className="border border-slate-200 rounded-xl p-2 text-center bg-slate-50/30">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">Talla para la Edad</p>
+                        <p className="text-[11px] font-bold text-slate-800 mt-1 uppercase leading-tight">{activeEvalForCharts.tallaEdadClass}</p>
+                        <p className="text-[9px] text-slate-500 font-mono mt-0.5">Z = {activeEvalForCharts.tallaEdadZ?.toFixed(2)}</p>
+                      </div>
+                      <div className="border border-slate-200 rounded-xl p-2 text-center bg-slate-50/30">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">Perímetro Cefálico</p>
+                        <p className="text-[11px] font-bold text-slate-800 mt-1 uppercase leading-tight">{activeEvalForCharts.perimetroCefalicoClass}</p>
+                        <p className="text-[9px] text-slate-500 font-mono mt-0.5">Z = {activeEvalForCharts.perimetroCefalicoZ?.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Caloric Requirements */}
+                  <div className="mt-3 bg-blue-50/35 border border-blue-100 rounded-xl p-2.5 flex justify-between items-center text-left">
+                    <div className="max-w-[75%]">
+                      <h3 className="text-[10px] font-bold text-blue-900 uppercase tracking-wide">
+                        3. Requerimientos Energéticos Estimados
+                      </h3>
+                      <p className="text-[10px] text-slate-655 leading-normal mt-0.5 font-sans">
+                        Gasto Energético Diario calculado con base en su diagnóstico antropométrico actual, usando el <span className="font-semibold text-slate-700">{activeEvalForCharts.pesoUsadoParaFormula === 'actual' ? 'Peso Actual' : `Peso Ideal (${activeEvalForCharts.pesoIdealCalculado?.toFixed(2)} kg)`}</span> para prevenir desbalances.
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[8px] text-blue-800 font-bold uppercase tracking-wider leading-none">Calorías</p>
+                      <p className="text-lg font-extrabold text-blue-900 mt-0.5 font-mono">{activeEvalForCharts.caloriasRecomendadas} <span className="text-[10px] font-medium">kcal</span></p>
+                    </div>
+                  </div>
+
+                  {/* Growth Charts Preview */}
+                  <div className="mt-4 border-t border-slate-200 pt-3">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">
+                      Curvas de Crecimiento del Paciente (Patrón de Referencia OMS)
+                    </h3>
+                    <div className="scale-[0.98] origin-top">
+                      <SomaCharts patient={patient} evaluation={activeEvalForCharts} isPrintView={true} />
+                    </div>
+                  </div>
+
+                  {/* General Medical Alert in red letters (no box, after charts) */}
+                  {activeEvalForCharts.perimetroBrazo > 0 && activeEvalForCharts.perimetroBrazo < 11.5 && (
+                    <div className="mt-4 text-left border-t border-red-100 pt-2">
+                      <p className="text-[10px] font-extrabold text-red-600 uppercase tracking-wide leading-none">
+                        ¡ALERTA MÉDICA GENERAL!
+                      </p>
+                      <p className="text-[10px] text-red-600 font-sans mt-1 leading-normal">
+                        El paciente cuenta con un Perímetro de Brazo de <span className="font-bold">{activeEvalForCharts.perimetroBrazo} cm</span> (umbral crítico: menor a 11.5 cm), lo cual indica desnutrición aguda severa o riesgo inminente según el protocolo nacional clínico de la OMS. Se requiere intervención diagnóstica y terapéutica prioritaria.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-center text-[9px] text-slate-400 mt-4 no-print border-t border-slate-100 pt-2">
+                  Continúa en la Página 2
+                </div>
+              </div>
+
+              {/* PAGE 2 */}
+              <div className="bg-white shadow-2xl w-full max-w-[21cm] min-h-[29.7cm] p-10 border border-slate-100 text-slate-800 flex flex-col justify-between font-sans leading-normal page-sheet mt-6" style={{ pageBreakBefore: 'always' }}>
+                <div className="flex-grow flex flex-col">
+                  {/* Simplified continuation header */}
+                  <div className="flex justify-between items-center border-b border-emerald-800 pb-2 mb-4">
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Universidad de Antioquia • Nutrición y Dietética</span>
+                    <span className="text-[9px] text-slate-500 font-mono">Paciente: {patient.nombre} (Pág. 2)</span>
+                  </div>
+
+                  {/* 7. Análisis e Interpretación de Curvas */}
+                  <div className="text-left mt-2">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                      4. Análisis e Interpretación de Curvas Clínicas (OMS)
+                    </h3>
+                    <div className="space-y-2">
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">
+                          Relación Peso para la Talla: <span className="text-slate-800 normal-case">{activeEvalForCharts.pesoTallaClass} (Z = {activeEvalForCharts.pesoTallaZ?.toFixed(2)})</span>
+                        </p>
+                        <p className="text-[9.5px] text-slate-655 mt-0.5 font-sans leading-normal">
+                          {getPdfClinicalAdvice('pesoTalla', activeEvalForCharts.pesoTallaClass, activeEvalForCharts.pesoTallaZ || 0)}
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">
+                          Relación Talla para la Edad: <span className="text-slate-800 normal-case">{activeEvalForCharts.tallaEdadClass} (Z = {activeEvalForCharts.tallaEdadZ?.toFixed(2)})</span>
+                        </p>
+                        <p className="text-[9.5px] text-slate-655 mt-0.5 font-sans leading-normal">
+                          {getPdfClinicalAdvice('tallaEdad', activeEvalForCharts.tallaEdadClass, activeEvalForCharts.tallaEdadZ || 0)}
+                        </p>
+                      </div>
+
+                      {activeEvalForCharts.perimetroCefalico > 0 && (
+                        <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">
+                            Perímetro Cefálico para la Edad: <span className="text-slate-800 normal-case">{activeEvalForCharts.perimetroCefalicoClass} (Z = {activeEvalForCharts.perimetroCefalicoZ?.toFixed(2)})</span>
+                          </p>
+                          <p className="text-[9.5px] text-slate-655 mt-0.5 font-sans leading-normal">
+                            {getPdfClinicalAdvice('perimetroCefalico', activeEvalForCharts.perimetroCefalicoClass, activeEvalForCharts.perimetroCefalicoZ || 0)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 8. Interactive Nutritionist custom notes */}
+                  <div className="mt-6 text-left flex-grow flex flex-col">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                      5. Notas y Observaciones Clínicas Adicionales
+                    </h3>
+                    <textarea
+                      value={pdfNotes}
+                      onChange={(e) => setPdfNotes(e.target.value)}
+                      placeholder="Escriba aquí sus observaciones clínicas, recomendaciones específicas de alimentación, o plan alimentario personalizado antes de imprimir..."
+                      className="w-full flex-grow p-4 border border-dashed border-slate-200 rounded-xl bg-slate-50/30 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-600 font-sans resize-none placeholder-slate-400 no-print min-h-[180px]"
+                    />
+                    {/* Printable view (replaces textarea during print) */}
+                    <div className="hidden print:block whitespace-pre-wrap text-xs text-slate-700 min-h-[6cm] p-4 border border-dashed border-slate-350 rounded-xl bg-slate-50/10 font-sans leading-relaxed text-left flex-grow">
+                      {pdfNotes || '\n\n\n\n\n\n\n\n'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Signatures on Page 2 */}
+                <div className="mt-8 pt-4 border-t border-slate-200 flex justify-between text-center text-[9px] text-slate-500">
+                  <div className="w-1/3">
+                    <div className="h-7 border-b border-slate-300 mb-1.5"></div>
+                    <p className="font-bold text-slate-700">Firma Nutricionista Responsable</p>
+                    <p className="font-mono text-[8px]">UdeA Nutrición y Dietética</p>
+                  </div>
+                  <div className="w-1/3 flex items-center justify-center opacity-30">
+                    <svg viewBox="0 0 100 100" className="h-10 w-10">
+                      <circle cx="50" cy="50" r="45" fill="none" stroke="#64748b" strokeWidth="2" strokeDasharray="3 3" />
+                      <text x="50" y="55" fontSize="10" textAnchor="middle" fill="#64748b" fontWeight="bold" fontFamily="sans-serif">SELLO UdeA</text>
+                    </svg>
+                  </div>
+                  <div className="w-1/3">
+                    <div className="h-7 border-b border-slate-300 mb-1.5"></div>
+                    <p className="font-bold text-slate-700">Firma de Coordinación Clínica</p>
+                    <p className="font-mono text-[8px]">Departamento de Nutrición</p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" id="patient_details_panel">
       
@@ -222,31 +674,44 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
       </div>
 
       {/* 3. TABS MENU */}
-      <div className="flex overflow-x-auto border-b border-slate-100 mb-8 pb-px scrollbar-none gap-2" id="patient_tab_bar">
-        {[
-          { id: 'antropometria', label: 'Antropometría y Gráficos', icon: Scale },
-          { id: 'requerimientos', label: 'Requerimientos Calóricos', icon: Flame },
-          { id: 'fca', label: 'Frecuencia Alimentos (FCA)', icon: Apple },
-          { id: 'recordatorio', label: 'Recordatorio 24H', icon: ClipboardList },
-          { id: 'plan', label: 'Plan de Alimentación', icon: FileSpreadsheet }
-        ].map(t => {
-          const IconComponent = t.icon;
-          const isActive = activeTab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id as any)}
-              className={`flex items-center space-x-2 px-4 py-3 border-b-2 font-medium text-sm transition-all whitespace-nowrap cursor-pointer ${
-                isActive
-                  ? 'border-blue-600 text-blue-600 bg-blue-50/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-600'
-              }`}
-            >
-              <IconComponent className="h-4 w-4" />
-              <span>{t.label}</span>
-            </button>
-          );
-        })}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 mb-8 pb-px gap-4" id="patient_tab_bar">
+        <div className="flex overflow-x-auto scrollbar-none gap-2">
+          {[
+            { id: 'antropometria', label: 'Antropometría y Gráficos', icon: Scale },
+            { id: 'requerimientos', label: 'Requerimientos Calóricos', icon: Flame },
+            { id: 'fca', label: 'Frecuencia Alimentos (FCA)', icon: Apple },
+            { id: 'recordatorio', label: 'Recordatorio 24H', icon: ClipboardList },
+            { id: 'plan', label: 'Plan de Alimentación', icon: FileSpreadsheet }
+          ].map(t => {
+            const IconComponent = t.icon;
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id as any)}
+                className={`flex items-center space-x-2 px-4 py-3 border-b-2 font-medium text-sm transition-all whitespace-nowrap cursor-pointer ${
+                  isActive
+                    ? 'border-blue-600 text-blue-600 bg-blue-50/10'
+                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <IconComponent className="h-4 w-4" />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* PDF Preview Button */}
+        {activeEvalForCharts && (
+          <button
+            onClick={() => setShowPdfPreview(true)}
+            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 mb-2 sm:mb-0 rounded-xl bg-slate-50 border border-slate-200 text-slate-655 font-semibold hover:bg-slate-105 hover:text-slate-800 transition-all text-xs cursor-pointer shadow-sm self-start sm:self-auto no-print"
+          >
+            <FileText className="h-3.5 w-3.5 text-red-500" />
+            <span>Vista previa PDF</span>
+          </button>
+        )}
       </div>
 
       {/* 4. ACTIVE TAB PANELS */}
@@ -312,20 +777,40 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
           <div className="xl:col-span-8">
             {activeEvalForCharts ? (
               <div className="space-y-4">
-                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                   <div>
                     <span className="text-xs text-slate-400">Evaluación visualizada:</span>
                     <h3 className="text-sm font-bold text-slate-800 mt-0.5">
                       {new Date(activeEvalForCharts.fecha).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}
                     </h3>
                   </div>
-                  <div className="flex gap-2">
-                    <span className="inline-flex items-center px-2.5 py-0.5 bg-slate-50 border border-slate-100 text-[11px] font-mono text-slate-600 rounded-lg">
-                      Pliegue Tricipital: {activeEvalForCharts.pliegueTricipital} mm
+                  <div className="flex flex-wrap gap-1.5 max-w-xl lg:justify-end">
+                    <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 border border-slate-100 text-[10px] font-mono text-slate-500 rounded-md">
+                      Peso: {activeEvalForCharts.peso} kg
                     </span>
-                    <span className="inline-flex items-center px-2.5 py-0.5 bg-slate-50 border border-slate-100 text-[11px] font-mono text-slate-600 rounded-lg">
-                      Pliegue Subescapular: {activeEvalForCharts.pliegueSubescapular} mm
+                    <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 border border-slate-100 text-[10px] font-mono text-slate-500 rounded-md">
+                      Talla: {activeEvalForCharts.talla} cm
                     </span>
+                    {activeEvalForCharts.perimetroBrazo > 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 border border-slate-100 text-[10px] font-mono text-slate-500 rounded-md">
+                        P. Brazo: {activeEvalForCharts.perimetroBrazo} cm
+                      </span>
+                    )}
+                    {activeEvalForCharts.perimetroCefalico > 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 border border-slate-100 text-[10px] font-mono text-slate-500 rounded-md">
+                        P. Cefálico: {activeEvalForCharts.perimetroCefalico} cm
+                      </span>
+                    )}
+                    {activeEvalForCharts.pliegueTricipital > 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 border border-slate-100 text-[10px] font-mono text-slate-500 rounded-md">
+                        Pl. Tricipital: {activeEvalForCharts.pliegueTricipital} mm
+                      </span>
+                    )}
+                    {activeEvalForCharts.pliegueSubescapular > 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 border border-slate-100 text-[10px] font-mono text-slate-500 rounded-md">
+                        Pl. Subescapular: {activeEvalForCharts.pliegueSubescapular} mm
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -634,6 +1119,9 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
           </div>
         </div>
       )}
+
+      {/* PDF PREVIEW MODAL */}
+      {renderPdfPreviewModal()}
 
     </div>
   );
