@@ -405,16 +405,13 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                   <div className="grid grid-cols-2 gap-4 mt-4">
                     <div className="bg-emerald-50/20 border border-emerald-100 rounded-xl p-3 text-left">
                       <h3 className="text-[10px] font-bold text-emerald-800 uppercase tracking-wide border-b border-emerald-100 pb-1 mb-1.5">
-                        Nutricionista Responsable
+                        Estudiante de Nutrición Responsable
                       </h3>
                       <p className="text-xs font-bold text-slate-800">
                         {loggedUser ? `${loggedUser.nombre} ${loggedUser.apellidos}` : 'Natalia Hernández'}
                       </p>
-                      <p className="text-[10px] text-slate-500 mt-0.5 font-mono">
-                        Registro Profesional: UdeA-ND-{(loggedUser?.id || 'admin').substr(-4).toUpperCase()}
-                      </p>
-                      <p className="text-[10px] text-slate-500 font-mono leading-tight">
-                        Tel: {loggedUser?.telefono || '3000000000'} | Correo: {loggedUser?.correo || 'correo@udea.edu.co'}
+                      <p className="text-[10px] text-slate-500 font-mono leading-tight mt-1">
+                        Correo: {loggedUser?.correo || 'correo@udea.edu.co'}
                       </p>
                     </div>
 
@@ -425,6 +422,11 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                       <p className="text-xs font-bold text-slate-800 uppercase">
                         {patient.nombre}
                       </p>
+                      {patient.documento && (
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          Documento: <span className="font-semibold">{patient.documento}</span>
+                        </p>
+                      )}
                       <p className="text-[10px] text-slate-500 mt-0.5">
                         Género: <span className="font-semibold">{isMale ? 'Masculino' : 'Femenino'}</span>
                       </p>
@@ -434,6 +436,14 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                       <p className="text-[10px] text-slate-500">
                         Edad al evaluar: <span className="font-semibold text-slate-700">{age.years}a {age.months}m {age.days}d</span>
                       </p>
+                      {patient.nombreAcudiente && (
+                        <div className="text-[9px] text-slate-500 mt-1.5 pt-1.5 border-t border-slate-200/60 leading-tight">
+                          <span className="font-bold text-slate-600 block uppercase tracking-wider text-[8px]">Acudiente</span>
+                          <span>{patient.nombreAcudiente} {patient.parentescoAcudiente ? `(${patient.parentescoAcudiente})` : ''}</span>
+                          {patient.celularAcudiente && <span className="block">Tel: {patient.celularAcudiente}</span>}
+                          {patient.direccionAcudiente && <span className="block">Dir: {patient.direccionAcudiente}</span>}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -607,22 +617,17 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                 </div>
 
                 {/* Footer Signatures on Page 2 */}
-                <div className="mt-8 pt-4 border-t border-slate-200 flex justify-between text-center text-[9px] text-slate-500">
-                  <div className="w-1/3">
+                <div className="mt-8 pt-4 border-t border-slate-200 flex justify-around items-end text-center text-[9px] text-slate-500">
+                  <div className="w-5/12">
                     <div className="h-7 border-b border-slate-300 mb-1.5"></div>
-                    <p className="font-bold text-slate-700">Firma Nutricionista Responsable</p>
+                    <p className="font-bold text-slate-700">Firma de Estudiante de Nutrición Responsable</p>
                     <p className="font-mono text-[8px]">UdeA Nutrición y Dietética</p>
                   </div>
-                  <div className="w-1/3 flex items-center justify-center opacity-30">
+                  <div className="w-5/12 flex items-center justify-center opacity-30">
                     <svg viewBox="0 0 100 100" className="h-10 w-10">
                       <circle cx="50" cy="50" r="45" fill="none" stroke="#64748b" strokeWidth="2" strokeDasharray="3 3" />
                       <text x="50" y="55" fontSize="10" textAnchor="middle" fill="#64748b" fontWeight="bold" fontFamily="sans-serif">SELLO UdeA</text>
                     </svg>
-                  </div>
-                  <div className="w-1/3">
-                    <div className="h-7 border-b border-slate-300 mb-1.5"></div>
-                    <p className="font-bold text-slate-700">Firma de Coordinación Clínica</p>
-                    <p className="font-mono text-[8px]">Departamento de Nutrición</p>
                   </div>
                 </div>
               </div>
@@ -669,6 +674,34 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
               <p className="text-xs text-slate-400 mt-1">
                 Edad Cronológica Exacta: <strong className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">{age.years} años, {age.months} meses y {age.days} días</strong> ({totalMonths} meses)
               </p>
+
+              {/* Datos Adicionales (Documento y Acudiente) */}
+              {(patient.documento || patient.nombreAcudiente) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 mt-4 pt-4 border-t border-slate-100/80 text-xs">
+                  {patient.documento && (
+                    <div>
+                      <span className="text-slate-400 font-semibold block uppercase tracking-wider text-[10px]">No. Documento:</span>
+                      <span className="text-slate-700 font-medium">{patient.documento}</span>
+                    </div>
+                  )}
+                  {patient.nombreAcudiente && (
+                    <>
+                      <div>
+                        <span className="text-slate-400 font-semibold block uppercase tracking-wider text-[10px]">Acudiente:</span>
+                        <span className="text-slate-700 font-medium">
+                          {patient.nombreAcudiente} {patient.parentescoAcudiente ? `(${patient.parentescoAcudiente})` : ''}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 font-semibold block uppercase tracking-wider text-[10px]">Contacto Acudiente:</span>
+                        <span className="text-slate-700 font-medium">
+                          {patient.celularAcudiente || 'Sin celular'}{patient.direccionAcudiente ? ` - ${patient.direccionAcudiente}` : ''}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

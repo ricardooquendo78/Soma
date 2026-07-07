@@ -113,7 +113,7 @@ export default function App() {
               <div>
                 <span className="text-lg font-black tracking-tight text-slate-800 font-sans">SOMA</span>
                 <span className="hidden sm:inline-block ml-2 text-xs font-semibold text-slate-400 border-l border-slate-200 pl-2">
-                  Nutrición Infantil
+                  Nutrición y Dietética
                 </span>
               </div>
             </div>

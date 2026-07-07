@@ -239,7 +239,17 @@ app.get('/api/patients/:id', async (req, res) => {
 // Create Patient
 app.post('/api/patients', async (req, res) => {
   try {
-    const { nombre, genero, fechaNacimiento } = req.body;
+    const { 
+      nombre, 
+      genero, 
+      fechaNacimiento,
+      documento,
+      nombreAcudiente,
+      parentescoAcudiente,
+      celularAcudiente,
+      direccionAcudiente
+    } = req.body;
+    
     if (!nombre || !genero || !fechaNacimiento) {
       return res.status(400).json({ error: 'Nombre, género y fecha de nacimiento son requeridos' });
     }
@@ -250,6 +260,11 @@ app.post('/api/patients', async (req, res) => {
       genero,
       fechaNacimiento,
       fechaRegistro: new Date().toISOString(),
+      documento: documento || '',
+      nombreAcudiente: nombreAcudiente || '',
+      parentescoAcudiente: parentescoAcudiente || '',
+      celularAcudiente: celularAcudiente || '',
+      direccionAcudiente: direccionAcudiente || '',
       evaluaciones: req.body.evaluaciones || [],
       fca: req.body.fca || [],
       recordatorios: req.body.recordatorios || [],

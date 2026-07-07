@@ -15,6 +15,11 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
   const [nombre, setNombre] = useState('');
   const [genero, setGenero] = useState<'niño' | 'niña'>('niña');
   const [fechaNacimiento, setFechaNacimiento] = useState('');
+  const [documento, setDocumento] = useState('');
+  const [nombreAcudiente, setNombreAcudiente] = useState('');
+  const [parentescoAcudiente, setParentescoAcudiente] = useState('');
+  const [celularAcudiente, setCelularAcudiente] = useState('');
+  const [direccionAcudiente, setDireccionAcudiente] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -44,7 +49,16 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
       const res = await fetch('/api/patients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre: nombre.trim(), genero, fechaNacimiento })
+        body: JSON.stringify({ 
+          nombre: nombre.trim(), 
+          genero, 
+          fechaNacimiento,
+          documento: documento.trim(),
+          nombreAcudiente: nombreAcudiente.trim(),
+          parentescoAcudiente,
+          celularAcudiente: celularAcudiente.trim(),
+          direccionAcudiente: direccionAcudiente.trim()
+        })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -54,6 +68,11 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
       onPatientCreated(data);
       setNombre('');
       setFechaNacimiento('');
+      setDocumento('');
+      setNombreAcudiente('');
+      setParentescoAcudiente('');
+      setCelularAcudiente('');
+      setDireccionAcudiente('');
       setShowAddModal(false);
     } catch (err: any) {
       setError(err.message);
@@ -145,6 +164,11 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
                   <h3 className="text-lg font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors line-clamp-1">
                     {patient.nombre}
                   </h3>
+                  {patient.documento && (
+                    <p className="text-xs font-mono text-slate-400 mt-0.5">
+                      Doc: {patient.documento}
+                    </p>
+                  )}
 
                   <p className="text-sm text-slate-500 mt-1 font-sans">
                     Edad: <span className="font-medium text-slate-700">{age.years} años, {age.months} meses y {age.days} días</span>
@@ -195,10 +219,10 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
       {/* ADD PACIENTE MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in" id="add_patient_modal">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-transform">
+          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-transform">
             
             {/* Modal Header */}
-            <div className="bg-slate-50 px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+            <div className="bg-slate-50 px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2 text-blue-600">
                 <UserPlus className="h-6 w-6" />
                 <h2 className="text-lg font-bold text-slate-800">Registrar Nuevo Paciente</h2>
@@ -212,7 +236,7 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
             </div>
 
             {/* Modal Content */}
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-grow">
               {error && (
                 <div className="p-3 bg-red-50 border border-red-100 text-red-700 rounded-xl text-xs flex items-center space-x-2">
                   <span className="font-semibold">Error:</span>
@@ -293,7 +317,88 @@ export default function PatientsView({ patients, onSelectPatient, onPatientCreat
                 <span className="text-xs text-slate-400 mt-1 block">Rango permitido: de 0 a 5 años</span>
               </div>
 
-              <div className="pt-4 flex space-x-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                  Número de Documento (Opcional)
+                </label>
+                <input
+                  type="text"
+                  id="new_patient_documento"
+                  value={documento}
+                  onChange={(e) => setDocumento(e.target.value)}
+                  placeholder="Ej. Registro Civil o NUIP"
+                  className="block w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-slate-800 transition-all"
+                />
+              </div>
+
+              <div className="border-t border-slate-100 pt-3 space-y-3">
+                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Datos del Acudiente</h3>
+                
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                    Nombre del Acudiente
+                  </label>
+                  <input
+                    type="text"
+                    id="new_patient_acudiente_nombre"
+                    value={nombreAcudiente}
+                    onChange={(e) => setNombreAcudiente(e.target.value)}
+                    placeholder="Nombre completo"
+                    className="block w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-slate-800 transition-all"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                      Parentesco
+                    </label>
+                    <select
+                      id="new_patient_acudiente_parentesco"
+                      value={parentescoAcudiente}
+                      onChange={(e) => setParentescoAcudiente(e.target.value)}
+                      className="block w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-slate-800 transition-all"
+                    >
+                      <option value="">Seleccionar...</option>
+                      <option value="Madre">Madre</option>
+                      <option value="Padre">Padre</option>
+                      <option value="Abuelo/a">Abuelo/a</option>
+                      <option value="Tío/a">Tío/a</option>
+                      <option value="Tutor">Tutor / Otro</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                      Celular
+                    </label>
+                    <input
+                      type="tel"
+                      id="new_patient_acudiente_celular"
+                      value={celularAcudiente}
+                      onChange={(e) => setCelularAcudiente(e.target.value)}
+                      placeholder="Ej. 3001234567"
+                      className="block w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-slate-800 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                    Dirección de Residencia
+                  </label>
+                  <input
+                    type="text"
+                    id="new_patient_acudiente_direccion"
+                    value={direccionAcudiente}
+                    onChange={(e) => setDireccionAcudiente(e.target.value)}
+                    placeholder="Dirección completa"
+                    className="block w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-slate-800 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex space-x-3 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}

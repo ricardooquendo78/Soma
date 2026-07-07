@@ -103,6 +103,11 @@ export interface Patient {
   genero: 'niño' | 'niña';
   fechaNacimiento: string;
   fechaRegistro: string;
+  documento?: string;
+  nombreAcudiente?: string;
+  parentescoAcudiente?: string;
+  celularAcudiente?: string;
+  direccionAcudiente?: string;
   evaluaciones: Evaluation[];
   fca: FoodFrequency[];
   recordatorios: Recall24H[];
