@@ -3,8 +3,20 @@ import { calculateZScore, loadTable, lookupLms } from '@pedi-growth/core';
 
 // Calculates the exact chronological age in years, months, and days
 export function calculateChronologicalAge(birthdateStr: string, targetDateStr?: string): ChronologicalAge {
-  const birthDate = new Date(birthdateStr);
-  const targetDate = targetDateStr ? new Date(targetDateStr) : new Date();
+  const [bYear, bMonth, bDay] = birthdateStr.split('-').map(Number);
+  const birthDate = new Date(bYear, bMonth - 1, bDay);
+
+  let targetDate: Date;
+  if (targetDateStr) {
+    if (targetDateStr.includes('T')) {
+      targetDate = new Date(targetDateStr);
+    } else {
+      const [tYear, tMonth, tDay] = targetDateStr.split('-').map(Number);
+      targetDate = new Date(tYear, tMonth - 1, tDay);
+    }
+  } else {
+    targetDate = new Date();
+  }
 
   let years = targetDate.getFullYear() - birthDate.getFullYear();
   let months = targetDate.getMonth() - birthDate.getMonth();
@@ -381,25 +393,56 @@ export async function calculateEvaluation(
   peso: number,
   talla: number,
   perimetroCefalico: number,
-  perimetroBrazo: number
+  perimetroBrazo: number,
+  medicionTipo?: 'acostado' | 'parado',
+  targetDateStr?: string
 ): Promise<Evaluation> {
-  const age = calculateChronologicalAge(birthdateStr);
+  const age = calculateChronologicalAge(birthdateStr, targetDateStr);
   const totalMonths = ageToTotalMonths(age);
   
-  const birthDate = new Date(birthdateStr);
-  const targetDate = new Date();
-  const ageInDays = Math.max(0, Math.floor((targetDate.getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24)));
+  const [bYear, bMonth, bDay] = birthdateStr.split('-').map(Number);
+  const birthDate = new Date(bYear, bMonth - 1, bDay);
+
+  let targetDate: Date;
+  if (targetDateStr) {
+    if (targetDateStr.includes('T')) {
+      targetDate = new Date(targetDateStr);
+    } else {
+      const [tYear, tMonth, tDay] = targetDateStr.split('-').map(Number);
+      targetDate = new Date(tYear, tMonth - 1, tDay);
+    }
+  } else {
+    targetDate = new Date();
+  }
+
+  // Normalize target date to midnight local time
+  const targetMidnight = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+
+  const msDiff = targetMidnight.getTime() - birthDate.getTime();
+  const ageInDays = Math.max(0, Math.floor(msDiff / (1000 * 60 * 60 * 24)));
+
+  // Adjustment of length/height based on measurement position (acostado vs. parado) as per WHO standards
+  let adjustedTalla = talla;
+  if (medicionTipo === 'parado' && ageInDays < 730.5) {
+    // Under 2 years measured standing -> convert to recumbent length by adding 0.7 cm
+    adjustedTalla = talla + 0.7;
+  } else if (medicionTipo === 'acostado' && ageInDays >= 730.5) {
+    // 2 years or older measured lying down -> convert to standing height by subtracting 0.7 cm
+    adjustedTalla = talla - 0.7;
+  }
 
   const hcResult = await evaluateHeadCircumference(genero, ageInDays, perimetroCefalico);
-  const hfaResult = await evaluateHeightForAge(genero, ageInDays, talla);
-  const wfhResult = await evaluateWeightForHeight(genero, ageInDays, talla, peso);
+  const hfaResult = await evaluateHeightForAge(genero, ageInDays, adjustedTalla);
+  const wfhResult = await evaluateWeightForHeight(genero, ageInDays, adjustedTalla, peso);
   const energyResult = calculateEnergyRequirements(genero, peso, wfhResult.idealWeight, wfhResult.classification);
 
   return {
     id: `eval_calc_${Date.now()}`,
-    fecha: new Date().toISOString(),
+    fecha: targetDateStr || new Date().toISOString(),
     peso,
     talla,
+    medicionTipo,
+    tallaAjustada: adjustedTalla,
     pliegueSubescapular: 0,
     pliegueTricipital: 0,
     perimetroBrazo,
@@ -417,4 +460,6 @@ export async function calculateEvaluation(
     pesoIdealCalculado: wfhResult.idealWeight
   };
 }
+
+
 

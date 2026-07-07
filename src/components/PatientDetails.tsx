@@ -45,6 +45,7 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
   // New Evaluation Form State
   const [peso, setPeso] = useState('');
   const [talla, setTalla] = useState('');
+  const [medicionTipo, setMedicionTipo] = useState<'acostado' | 'parado'>('acostado');
   const [pliegueSubescapular, setPliegueSubescapular] = useState('');
   const [pliegueTricipital, setPliegueTricipital] = useState('');
   const [perimetroBrazo, setPerimetroBrazo] = useState('');
@@ -62,6 +63,16 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
   const age = calculateChronologicalAge(patient.fechaNacimiento);
   const totalMonths = ageToTotalMonths(age);
   const isMale = patient.genero === 'niño';
+
+  React.useEffect(() => {
+    if (showAddEvalModal) {
+      if (totalMonths < 24) {
+        setMedicionTipo('acostado');
+      } else {
+        setMedicionTipo('parado');
+      }
+    }
+  }, [showAddEvalModal, totalMonths]);
 
   const handleCreateEvaluation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +112,8 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
         w,
         h,
         pc,
-        pb
+        pb,
+        medicionTipo
       );
 
       // Append additional fields
@@ -753,8 +765,13 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                             {new Date(ev.fecha).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono block mt-1">
-                            Peso: {ev.peso} kg | Talla: {ev.talla} cm | PC: {ev.perimetroCefalico} cm
+                            Peso: {ev.peso} kg | Talla: {ev.talla} cm {ev.medicionTipo ? `(${ev.medicionTipo})` : ''} | PC: {ev.perimetroCefalico} cm
                           </span>
+                          {ev.tallaAjustada !== undefined && Math.abs(ev.tallaAjustada - ev.talla) > 0.01 && (
+                            <span className="text-[9px] text-amber-600 block mt-0.5 font-medium">
+                              Talla corregida OMS: {ev.tallaAjustada.toFixed(1)} cm
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center space-x-2">
                           <ChevronRight className="h-4 w-4 text-slate-400" />
@@ -789,8 +806,13 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                       Peso: {activeEvalForCharts.peso} kg
                     </span>
                     <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 border border-slate-100 text-[10px] font-mono text-slate-500 rounded-md">
-                      Talla: {activeEvalForCharts.talla} cm
+                      Talla: {activeEvalForCharts.talla} cm {activeEvalForCharts.medicionTipo ? `(${activeEvalForCharts.medicionTipo})` : ''}
                     </span>
+                    {activeEvalForCharts.tallaAjustada !== undefined && Math.abs(activeEvalForCharts.tallaAjustada - activeEvalForCharts.talla) > 0.01 && (
+                      <span className="inline-flex items-center px-2 py-0.5 bg-amber-50 border border-amber-100 text-[10px] font-mono text-amber-700 rounded-md font-semibold">
+                        Ajuste OMS: {activeEvalForCharts.tallaAjustada.toFixed(1)} cm
+                      </span>
+                    )}
                     {activeEvalForCharts.perimetroBrazo > 0 && (
                       <span className="inline-flex items-center px-2 py-0.5 bg-slate-50 border border-slate-100 text-[10px] font-mono text-slate-500 rounded-md">
                         P. Brazo: {activeEvalForCharts.perimetroBrazo} cm
@@ -994,7 +1016,7 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 {/* Peso */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
@@ -1027,6 +1049,22 @@ export default function PatientDetails({ patient, onBack, onUpdatePatient }: Pat
                     placeholder="Ej. 88.4"
                     className="block w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white text-sm text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all"
                   />
+                </div>
+
+                {/* Posición de Medida (WHO Anthro) */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                    Medición
+                  </label>
+                  <select
+                    id="eval_medicion_tipo"
+                    value={medicionTipo}
+                    onChange={(e) => setMedicionTipo(e.target.value as 'acostado' | 'parado')}
+                    className="block w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white text-sm text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all"
+                  >
+                    <option value="acostado">Acostado (Longitud)</option>
+                    <option value="parado">Parado (Estatura)</option>
+                  </select>
                 </div>
               </div>
 

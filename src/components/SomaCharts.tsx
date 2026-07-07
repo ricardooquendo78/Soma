@@ -1,7 +1,7 @@
 import React from 'react';
 import { Evaluation, Patient } from '../types';
-import { ageToTotalMonths, calculateChronologicalAge, interpolateWHO, heightForAgeBoys, heightForAgeGirls, headCircumferenceBoys, headCircumferenceGirls } from '../lib/whoCalculations';
-import { ShieldAlert, TrendingUp, Sparkles, Heart, X, Maximize2, Scale, Calendar, Activity } from 'lucide-react';
+import { ageToTotalMonths, calculateChronologicalAge } from '../lib/whoCalculations';
+import { ShieldAlert, Sparkles, Heart, X, Maximize2, Scale, Activity, TrendingUp } from 'lucide-react';
 import { loadTable, lookupLms } from '@pedi-growth/core';
 
 interface SomaChartsProps {
@@ -12,8 +12,12 @@ interface SomaChartsProps {
 
 export default function SomaCharts({ patient, evaluation, isPrintView = false }: SomaChartsProps) {
   const [activeModalChart, setActiveModalChart] = React.useState<'pesoTalla' | 'tallaEdad' | 'perimetroCefalico' | null>(null);
+  
+  // LMS Tables States
   const [wflTable, setWflTable] = React.useState<any[] | null>(null);
   const [wfhTable, setWfhTable] = React.useState<any[] | null>(null);
+  const [lhfaTable, setLhfaTable] = React.useState<any[] | null>(null);
+  const [hcfaTable, setHcfaTable] = React.useState<any[] | null>(null);
 
   const age = calculateChronologicalAge(patient.fechaNacimiento, evaluation.fecha);
   const totalMonths = ageToTotalMonths(age);
@@ -23,160 +27,298 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
   React.useEffect(() => {
     Promise.all([
       loadTable(isMale ? 'wfl-boys' : 'wfl-girls'),
-      loadTable(isMale ? 'wfh-boys' : 'wfh-girls')
-    ]).then(([wfl, wfh]) => {
+      loadTable(isMale ? 'wfh-boys' : 'wfh-girls'),
+      loadTable(isMale ? 'lhfa-boys-0-5' : 'lhfa-girls-0-5'),
+      loadTable(isMale ? 'hcfa-boys-0-5' : 'hcfa-girls-0-5')
+    ]).then(([wfl, wfh, lhfa, hcfa]) => {
       setWflTable(wfl);
       setWfhTable(wfh);
+      setLhfaTable(lhfa);
+      setHcfaTable(hcfa);
     }).catch(err => {
       console.error('Error loading LMS tables for charts', err);
     });
   }, [isMale]);
 
-  // 1. ARM CIRCUMFERENCE ALERT (MUAC)
+  // Arm circumference alert (MUAC)
   const showArmAlert = evaluation.perimetroBrazo > 0 && evaluation.perimetroBrazo < 11.5;
 
-  // 2. CHART DETERMINATION
+  // Chart determination groups
   const chartGroup = isMale 
     ? (isUnder2 ? { pt: 1, te: 3, pc: 9 } : { pt: 2, te: 4, pc: 9 })
     : (isUnder2 ? { pt: 5, te: 7, pc: 10 } : { pt: 6, te: 8, pc: 10 });
 
+  // Patient height (with WHO Anthro standing/recumbent adjustments applied in database)
+  const pTalla = evaluation.tallaAjustada || evaluation.talla;
+
   // ----------------------------------------------------
-  // CALCULATIONS AND COORDINATES FOR CHART 1: PESO PARA LA TALLA
+  // UTILITIES & FORMULA
   // ----------------------------------------------------
-  const minH_pt = isUnder2 ? 45 : 65;
-  const maxH_pt = isUnder2 ? 110 : 120;
-  const minW_pt = isUnder2 ? 1.5 : 5;
-  const maxW_pt = isUnder2 ? 22 : 25;
-
-  const activeTable = isUnder2 ? wflTable : wfhTable;
-  const dataPoints_pt: { height: number; sd3Neg: number; sd2Neg: number; sd0: number; sd2Pos: number; sd3Pos: number }[] = [];
-  const step_pt = (maxH_pt - minH_pt) / 10;
-  for (let i = 0; i <= 10; i++) {
-    const h = minH_pt + i * step_pt;
-    let median = isMale 
-      ? (isUnder2 ? (h * 0.24 - 8.3) : (h * 0.27 - 10.0))
-      : (isUnder2 ? (h * 0.23 - 8.1) : (h * 0.28 - 11.0));
-    const sdPercent = isUnder2 ? 0.11 : 0.12;
-    const sd = median * sdPercent;
-
-    let sd3Neg = Math.max(0.5, median - 3 * sd);
-    let sd2Neg = Math.max(1.0, median - 2 * sd);
-    let sd0 = median;
-    let sd2Pos = median + 2 * sd;
-    let sd3Pos = median + 3 * sd;
-
-    if (activeTable) {
-      const lms = lookupLms(activeTable, h);
-      if (lms) {
-        sd0 = lms.M;
-        const lmsToValue = (z: number) => {
-          if (lms.L === 0) {
-            return lms.M * Math.exp(lms.S * z);
-          }
-          const val = 1 + lms.L * lms.S * z;
-          if (val <= 0) return 0.1;
-          return lms.M * Math.pow(val, 1 / lms.L);
-        };
-        sd3Neg = lmsToValue(-3);
-        sd2Neg = lmsToValue(-2);
-        sd2Pos = lmsToValue(2);
-        sd3Pos = lmsToValue(3);
-      }
+  const getValueForZ = (lms: { L: number; M: number; S: number }, z: number) => {
+    if (!lms) return 0;
+    if (lms.L === 0) {
+      return lms.M * Math.exp(lms.S * z);
     }
-
-    dataPoints_pt.push({
-      height: h,
-      sd3Neg,
-      sd2Neg,
-      sd0,
-      sd2Pos,
-      sd3Pos,
-    });
-  }
-
-  const toX_pt = (h: number) => 50 + ((h - minH_pt) / (maxH_pt - minH_pt)) * 400;
-  const toY_pt = (w: number) => 250 - ((w - minW_pt) / (maxW_pt - minW_pt)) * 200;
-
-  const getPath_pt = (key: 'sd3Neg' | 'sd2Neg' | 'sd0' | 'sd2Pos' | 'sd3Pos') => {
-    return dataPoints_pt.map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX_pt(p.height)} ${toY_pt(p[key])}`).join(' ');
+    const val = 1 + lms.L * lms.S * z;
+    if (val <= 0) return 0.1;
+    return lms.M * Math.pow(val, 1 / lms.L);
   };
 
-  const renderWeightForHeightSVG = () => {
+  // Common plot dimensions
+  // viewBox="0 0 650 520"
+  // Margins: Left 60, Right 65, Top 50, Bottom 60.
+  const xMin = 60;
+  const xMax = 585; // Width = 525
+  const yMin = 50;
+  const yMax = 460; // Height = 410
+
+  // ----------------------------------------------------
+  // GRID & TICKS RENDERER
+  // ----------------------------------------------------
+  const renderAxesAndTicks = (
+    xMajorTicks: number[],
+    xMinorTicks: number[],
+    yMajorTicks: number[],
+    yMinorTicks: number[],
+    xLabel: string,
+    yLabel: string,
+    toX: (x: number) => number,
+    toY: (y: number) => number,
+    formatXLabel?: (x: number) => string
+  ) => {
     return (
-      <svg viewBox="0 0 500 300" className="w-full h-auto">
-        {/* Grid lines */}
-        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => {
-          const h = minH_pt + i * ((maxH_pt - minH_pt) / 10);
-          const w = minW_pt + i * ((maxW_pt - minW_pt) / 10);
+      <g>
+        {/* Background Plot Frame Grid area (White) */}
+        <rect x={xMin} y={yMin} width={xMax - xMin} height={yMax - yMin} fill="#ffffff" />
+
+        {/* Major Grid Lines */}
+        {xMajorTicks.map(val => (
+          <line key={`grid-x-${val}`} x1={toX(val)} y1={yMin} x2={toX(val)} y2={yMax} stroke="#f1f5f9" strokeWidth="1" />
+        ))}
+        {yMajorTicks.map(val => (
+          <line key={`grid-y-${val}`} x1={xMin} y1={toY(val)} x2={xMax} y2={toY(val)} stroke="#f1f5f9" strokeWidth="1" />
+        ))}
+
+        {/* Double Axis frame border */}
+        <rect x={xMin} y={yMin} width={xMax - xMin} height={yMax - yMin} fill="none" stroke="#000000" strokeWidth="1.5" />
+
+        {/* X Ticks (Bottom - Outward, Top - Inward) */}
+        {xMajorTicks.map(val => {
+          const x = toX(val);
           return (
-            <g key={i}>
-              <line x1={toX_pt(h)} y1="50" x2={toX_pt(h)} y2="250" stroke="#f1f5f9" strokeWidth="1" />
-              <text x={toX_pt(h)} y="265" fontSize="8" textAnchor="middle" fill="#94a3b8" fontFamily="monospace">
-                {Math.round(h)}
-              </text>
-              <line x1="50" y1={toY_pt(w)} x2="450" y2={toY_pt(w)} stroke="#f1f5f9" strokeWidth="1" />
-              <text x="35" y={toY_pt(w) + 3} fontSize="8" textAnchor="end" fill="#94a3b8" fontFamily="monospace">
-                {Math.round(w)}
+            <g key={`xtick-maj-${val}`}>
+              <line x1={x} y1={yMax} x2={x} y2={yMax + 8} stroke="#000000" strokeWidth="1.2" />
+              <line x1={x} y1={yMin} x2={x} y2={yMin + 8} stroke="#000000" strokeWidth="1.2" />
+              <text x={x} y={yMax + 20} fontSize="11" textAnchor="middle" fill="#000000" fontFamily="sans-serif">
+                {formatXLabel ? formatXLabel(val) : val}
               </text>
             </g>
           );
         })}
+        {xMinorTicks.map(val => {
+          const x = toX(val);
+          return (
+            <g key={`xtick-min-${val}`}>
+              <line x1={x} y1={yMax} x2={x} y2={yMax + 4} stroke="#000000" strokeWidth="0.8" />
+              <line x1={x} y1={yMin} x2={x} y2={yMin + 4} stroke="#000000" strokeWidth="0.8" />
+            </g>
+          );
+        })}
 
-        {/* Standard Deviation Curves */}
-        <path d={getPath_pt('sd3Pos')} fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="2 2" />
-        <text x="455" y={toY_pt(dataPoints_pt[10].sd3Pos) + 3} fontSize="8" fill="#ef4444" fontWeight="bold">+3</text>
+        {/* Y Ticks (Left - Outward, Right - Inward) */}
+        {yMajorTicks.map(val => {
+          const y = toY(val);
+          return (
+            <g key={`ytick-maj-${val}`}>
+              <line x1={xMin} y1={y} x2={xMin - 8} y2={y} stroke="#000000" strokeWidth="1.2" />
+              <line x1={xMax} y1={y} x2={xMax - 8} y2={y} stroke="#000000" strokeWidth="1.2" />
+              <text x={xMin - 12} y={y + 4} fontSize="11" textAnchor="end" fill="#000000" fontFamily="sans-serif">
+                {val}
+              </text>
+            </g>
+          );
+        })}
+        {yMinorTicks.map(val => {
+          const y = toY(val);
+          return (
+            <g key={`ytick-min-${val}`}>
+              <line x1={xMin} y1={y} x2={xMin - 4} y2={y} stroke="#000000" strokeWidth="0.8" />
+              <line x1={xMax} y1={y} x2={xMax - 4} y2={y} stroke="#000000" strokeWidth="0.8" />
+            </g>
+          );
+        })}
 
-        <path d={getPath_pt('sd2Pos')} fill="none" stroke="#f97316" strokeWidth="1.5" />
-        <text x="455" y={toY_pt(dataPoints_pt[10].sd2Pos) + 3} fontSize="8" fill="#f97316" fontWeight="bold">+2</text>
+        {/* Axes Titles */}
+        <text x={(xMin + xMax) / 2} y={yMax + 40} fontSize="12" fontWeight="bold" textAnchor="middle" fill="#000000" fontFamily="sans-serif">
+          {xLabel}
+        </text>
+        <text x="18" y={(yMin + yMax) / 2} fontSize="12" fontWeight="bold" textAnchor="middle" fill="#000000" fontFamily="sans-serif" transform={`rotate(-90, 18, ${(yMin + yMax) / 2})`}>
+          {yLabel}
+        </text>
+      </g>
+    );
+  };
 
-        <path d={getPath_pt('sd0')} fill="none" stroke="#10b981" strokeWidth="2.5" />
-        <text x="455" y={toY_pt(dataPoints_pt[10].sd0) + 3} fontSize="8" fill="#10b981" fontWeight="bold">0</text>
+  // Loading indicator for tables
+  if (!wflTable || !wfhTable || !lhfaTable || !hcfaTable) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-slate-100 shadow-sm text-slate-400">
+        <Sparkles className="h-7 w-7 animate-spin text-blue-500 mb-2.5" />
+        <span className="text-sm font-semibold">Cargando estándares OMS y tablas LMS...</span>
+      </div>
+    );
+  }
 
-        <path d={getPath_pt('sd2Neg')} fill="none" stroke="#f97316" strokeWidth="1.5" />
-        <text x="455" y={toY_pt(dataPoints_pt[10].sd2Neg) + 3} fontSize="8" fill="#f97316" fontWeight="bold">-2</text>
+  // ----------------------------------------------------
+  // CHART 1: PESO PARA LA TALLA (Weight-for-Height/Length)
+  // ----------------------------------------------------
+  const minH_pt = isUnder2 ? 45 : 65;
+  const maxH_pt = isUnder2 ? 110 : 120;
+  const minW_pt = isUnder2 ? 2 : 5;
+  const maxW_pt = isUnder2 ? 24 : 30;
+  const activeTable = isUnder2 ? wflTable : wfhTable;
 
-        <path d={getPath_pt('sd3Neg')} fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="2 2" />
-        <text x="455" y={toY_pt(dataPoints_pt[10].sd3Neg) + 3} fontSize="8" fill="#ef4444" fontWeight="bold">-3</text>
+  const toX_pt = (h: number) => xMin + ((h - minH_pt) / (maxH_pt - minH_pt)) * 525;
+  const toY_pt = (w: number) => yMax - ((w - minW_pt) / (maxW_pt - minW_pt)) * 410;
 
-        {/* Patient plotted Point */}
-        {evaluation.peso > 0 && evaluation.talla > 0 && (
-          <g>
-            <circle
-              cx={toX_pt(evaluation.talla)}
-              cy={toY_pt(evaluation.peso)}
-              r="6"
-              fill={isMale ? '#3b82f6' : '#ec4899'}
-              stroke="white"
-              strokeWidth="2"
-              className={isPrintView ? '' : 'animate-pulse'}
-            />
-            {!isPrintView && (
-              <circle
-                cx={toX_pt(evaluation.talla)}
-                cy={toY_pt(evaluation.peso)}
-                r="12"
-                fill="none"
-                stroke={isMale ? '#3b82f6' : '#ec4899'}
-                strokeWidth="1.5"
-                opacity="0.4"
-                className="animate-ping"
-              />
-            )}
-          </g>
+  // Curves generator
+  const getCurvePathWeightForHeight = (z: number) => {
+    const points: string[] = [];
+    const step = (maxH_pt - minH_pt) / 30;
+    for (let i = 0; i <= 30; i++) {
+      const h = minH_pt + i * step;
+      const lms = lookupLms(activeTable, h);
+      if (lms) {
+        const val = getValueForZ(lms, z);
+        points.push(`${toX_pt(h)} ${toY_pt(val)}`);
+      }
+    }
+    return `M ${points.join(' L ')}`;
+  };
+
+  const getLabelYWeightForHeight = (z: number) => {
+    const lms = lookupLms(activeTable, maxH_pt);
+    if (lms) {
+      const val = getValueForZ(lms, z);
+      return toY_pt(val);
+    }
+    return 250;
+  };
+
+  const renderWeightForHeightSVG = () => {
+    // Generate Ticks
+    const xMajor_pt = isUnder2 ? [45, 50, 60, 70, 80, 90, 100, 110] : [65, 70, 80, 90, 100, 110, 120];
+    const xMinor_pt: number[] = [];
+    for (let h = minH_pt; h <= maxH_pt; h++) {
+      if (!xMajor_pt.includes(h)) xMinor_pt.push(h);
+    }
+
+    const yMajor_pt = isUnder2 ? [2, 5, 10, 15, 20, 24] : [5, 10, 15, 20, 25, 30];
+    const yMinor_pt: number[] = [];
+    const yStep = 0.5;
+    for (let w = minW_pt; w <= maxW_pt; w += yStep) {
+      if (!yMajor_pt.includes(w)) yMinor_pt.push(w);
+    }
+
+    const curvesDef = [
+      { z: 3, label: '+3DE', color: '#4b5563', width: '1.5' },
+      { z: 2, label: '+2DE', color: '#ef4444', width: '1.5' },
+      { z: 1, label: '+1DE', color: '#d97706', width: '1.2' },
+      { z: 0, label: 'Mediana', color: '#16a34a', width: '2.5' },
+      { z: -1, label: '-1DE', color: '#d97706', width: '1.2' },
+      { z: -2, label: '-2DE', color: '#ef4444', width: '1.5' },
+      { z: -3, label: '-3DE', color: '#4b5563', width: '1.5' }
+    ];
+
+    const clipId = `wfh-clip-${isUnder2 ? 'under2' : 'over2'}`;
+
+    return (
+      <svg viewBox="0 0 650 520" className="w-full h-auto">
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={xMin} y={yMin} width={xMax - xMin} height={yMax - yMin} />
+          </clipPath>
+        </defs>
+
+        {/* Background, border, grid and ticks */}
+        {renderAxesAndTicks(
+          xMajor_pt,
+          xMinor_pt,
+          yMajor_pt,
+          yMinor_pt,
+          'Longitud / Talla (cm)',
+          'Peso (kg)',
+          toX_pt,
+          toY_pt
         )}
 
-        {/* Axes */}
-        <line x1="50" y1="250" x2="450" y2="250" stroke="#cbd5e1" strokeWidth="1.5" />
-        <line x1="50" y1="50" x2="50" y2="250" stroke="#cbd5e1" strokeWidth="1.5" />
-        
-        <text x="250" y="290" fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="semibold">Talla / Longitud (cm)</text>
-        <text x="15" y="150" fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="semibold" transform="rotate(-90, 15, 150)">Peso (kg)</text>
+        {/* Clipped Group for Curves and Crosshair Lines */}
+        <g clipPath={`url(#${clipId})`}>
+          {curvesDef.map(curve => (
+            <path
+              key={`wfh-path-${curve.z}`}
+              d={getCurvePathWeightForHeight(curve.z)}
+              fill="none"
+              stroke={curve.color}
+              strokeWidth={curve.width}
+            />
+          ))}
+
+          {/* Red dotted crosshairs */}
+          {evaluation.peso > 0 && evaluation.talla > 0 && (
+            <g>
+              <line x1={toX_pt(pTalla)} y1={yMin} x2={toX_pt(pTalla)} y2={yMax} stroke="#ef4444" strokeWidth="1" strokeDasharray="3 3" />
+              <line x1={xMin} y1={toY_pt(evaluation.peso)} x2={xMax} y2={toY_pt(evaluation.peso)} stroke="#ef4444" strokeWidth="1" strokeDasharray="3 3" />
+            </g>
+          )}
+        </g>
+
+        {/* Curve Labels (drawn outside clip so they are visible) */}
+        {curvesDef.map(curve => {
+          const yLabel = getLabelYWeightForHeight(curve.z);
+          // Only show label if it's within the plot height limits
+          if (yLabel >= yMin && yLabel <= yMax) {
+            return (
+              <text
+                key={`wfh-lbl-${curve.z}`}
+                x={xMax + 8}
+                y={yLabel + 4}
+                fontSize="10.5"
+                fontWeight="bold"
+                fill={curve.color}
+                textAnchor="start"
+                fontFamily="sans-serif"
+              >
+                {curve.label}
+              </text>
+            );
+          }
+          return null;
+        })}
+
+        {/* Plotted Patient Point & Tooltip (drawn outside clip so they display correctly) */}
+        {evaluation.peso > 0 && evaluation.talla > 0 && (
+          <g>
+            {/* Target crosshair pointer */}
+            <circle cx={toX_pt(pTalla)} cy={toY_pt(evaluation.peso)} r="6" fill="none" stroke="#4f46e5" strokeWidth="2" />
+            <line x1={toX_pt(pTalla)} y1={toY_pt(evaluation.peso) - 6} x2={toX_pt(pTalla)} y2={toY_pt(evaluation.peso) + 6} stroke="#4f46e5" strokeWidth="1.5" />
+            <line x1={toX_pt(pTalla) - 6} y1={toY_pt(evaluation.peso)} x2={toX_pt(pTalla) + 6} y2={toY_pt(evaluation.peso)} stroke="#4f46e5" strokeWidth="1.5" />
+
+            {/* Legend Tooltip Box */}
+            <rect x={xMin + 20} y={yMin + 20} width="220" height="42" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
+            <line x1={xMin + 30} y1={yMin + 41} x2={xMin + 50} y2={yMin + 41} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3 3" />
+            <text x={xMin + 57} y={yMin + 44} fontSize="10.5" fontWeight="bold" fill="#000000" fontFamily="sans-serif">
+              {`${isUnder2 ? 'Longitud' : 'Talla'}: ${evaluation.talla.toFixed(1)} cm, z: ${evaluation.pesoTallaZ?.toFixed(2).replace('.', ',')}`}
+            </text>
+          </g>
+        )}
       </svg>
     );
   };
 
   const renderWeightForHeightChart = () => {
-    return (      <div 
+    return (
+      <div 
         onClick={isPrintView ? undefined : () => setActiveModalChart('pesoTalla')}
         className={`flex flex-col justify-between h-full transition-all group relative ${isPrintView ? 'p-1 bg-transparent border-none shadow-none' : 'bg-white p-5 rounded-2xl border border-slate-100 shadow-sm cursor-pointer hover:shadow-md hover:border-blue-200'}`}
       >
@@ -220,110 +362,144 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
   };
 
   // ----------------------------------------------------
-  // CALCULATIONS AND COORDINATES FOR CHART 2: TALLA PARA LA EDAD
+  // CHART 2: TALLA PARA LA EDAD (Height-for-Age)
   // ----------------------------------------------------
-  const minA_te = isUnder2 ? 0 : 24;
-  const maxA_te = isUnder2 ? 24 : 60;
-  const minH_te = isUnder2 ? 45 : 75;
-  const maxH_te = isUnder2 ? 100 : 125;
+  const minA_te = 0;
+  const maxA_te = 60;
+  const minH_te = 40;
+  const maxH_te = 125;
 
-  const dataPoints_te: { age: number; sd2Neg: number; sd1Neg: number; sd0: number; sd1Pos: number; sd2Pos: number }[] = [];
-  const step_te = (maxA_te - minA_te) / 10;
-  const dataset_te = isMale ? heightForAgeBoys : heightForAgeGirls;
-  
-  for (let i = 0; i <= 10; i++) {
-    const ageVal = minA_te + i * step_te;
-    const limits = interpolateWHO(ageVal, dataset_te);
-    dataPoints_te.push({
-      age: ageVal,
-      sd2Neg: limits[0],
-      sd1Neg: limits[1],
-      sd0: limits[2],
-      sd1Pos: limits[3],
-      sd2Pos: limits[4],
-    });
-  }
+  const toX_te = (a: number) => xMin + (a / 60) * 525;
+  const toY_te = (h: number) => yMax - ((h - 40) / 85) * 410;
 
-  const toX_te = (a: number) => 50 + ((a - minA_te) / (maxA_te - minA_te)) * 400;
-  const toY_te = (h: number) => 250 - ((h - minH_te) / (maxH_te - minH_te)) * 200;
+  // Curves generator with discontinuity at 24 months (recumbent vs standing)
+  const getCurvePathHeightForAge = (z: number) => {
+    const points1: string[] = [];
+    // Section 1: 0 to 24 months (Length)
+    for (let m = 0; m <= 24; m++) {
+      const days = m === 24 ? 730 : m * 30.4375;
+      const lms = lookupLms(lhfaTable, days);
+      if (lms) {
+        const val = getValueForZ(lms, z);
+        points1.push(`${toX_te(m)} ${toY_te(val)}`);
+      }
+    }
 
-  const getPath_te = (idx: number) => {
-    return dataPoints_te.map((p, i) => {
-      const limits = interpolateWHO(p.age, dataset_te);
-      return `${i === 0 ? 'M' : 'L'} ${toX_te(p.age)} ${toY_te(limits[idx])}`;
-    }).join(' ');
+    const points2: string[] = [];
+    // Section 2: 24 to 60 months (Height)
+    for (let m = 24; m <= 60; m++) {
+      const days = m === 24 ? 731 : m * 30.4375;
+      const lms = lookupLms(lhfaTable, days);
+      if (lms) {
+        const val = getValueForZ(lms, z);
+        points2.push(`${toX_te(m)} ${toY_te(val)}`);
+      }
+    }
+
+    const path1 = `M ${points1.join(' L ')}`;
+    const path2 = `M ${points2.join(' L ')}`;
+    return `${path1} ${path2}`;
+  };
+
+  const getLabelYHeightForAge = (z: number) => {
+    const lms = lookupLms(lhfaTable, 60 * 30.4375);
+    if (lms) {
+      const val = getValueForZ(lms, z);
+      return toY_te(val);
+    }
+    return 250;
   };
 
   const renderHeightForAgeSVG = () => {
+    const xMajor_te = [0, 12, 24, 36, 48, 60];
+    const xMinor_te: number[] = [];
+    for (let m = 0; m <= 60; m++) {
+      if (!xMajor_te.includes(m)) xMinor_te.push(m);
+    }
+
+    const yMajor_te = [40, 50, 60, 70, 80, 90, 100, 110, 120, 125];
+    const yMinor_te: number[] = [];
+    for (let h = 40; h <= 125; h++) {
+      if (!yMajor_te.includes(h)) yMinor_te.push(h);
+    }
+
+    const curvesDef = [
+      { z: 3, label: '+3DE', color: '#4b5563', width: '1.5' },
+      { z: 2, label: '+2DE', color: '#ef4444', width: '1.5' },
+      { z: 0, label: 'Mediana', color: '#16a34a', width: '2.5' },
+      { z: -2, label: '-2DE', color: '#ef4444', width: '1.5' },
+      { z: -3, label: '-3DE', color: '#4b5563', width: '1.5' }
+    ];
+
     return (
-      <svg viewBox="0 0 500 300" className="w-full h-auto">
-        {/* Grid lines */}
-        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => {
-          const a = minA_te + i * ((maxA_te - minA_te) / 10);
-          const h = minH_te + i * ((maxH_te - minH_te) / 10);
-          return (
-            <g key={i}>
-              <line x1={toX_te(a)} y1="50" x2={toX_te(a)} y2="250" stroke="#f1f5f9" strokeWidth="1" />
-              <text x={toX_te(a)} y="265" fontSize="8" textAnchor="middle" fill="#94a3b8" fontFamily="monospace">
-                {Math.round(a)}m
-              </text>
-              <line x1="50" y1={toY_te(h)} x2="450" y2={toY_te(h)} stroke="#f1f5f9" strokeWidth="1" />
-              <text x="35" y={toY_te(h) + 3} fontSize="8" textAnchor="end" fill="#94a3b8" fontFamily="monospace">
-                {Math.round(h)}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* standard curves */}
-        <path d={getPath_te(4)} fill="none" stroke="#22c55e" strokeWidth="1" strokeDasharray="3 3" />
-        <text x="455" y={toY_te(interpolateWHO(maxA_te, dataset_te)[4]) + 3} fontSize="8" fill="#22c55e" fontWeight="bold">+2</text>
-        
-        <path d={getPath_te(3)} fill="none" stroke="#a3e635" strokeWidth="1.2" />
-        <text x="455" y={toY_te(interpolateWHO(maxA_te, dataset_te)[3]) + 3} fontSize="8" fill="#a3e635" fontWeight="bold">+1</text>
-
-        <path d={getPath_te(2)} fill="none" stroke="#10b981" strokeWidth="2.5" />
-        <text x="455" y={toY_te(interpolateWHO(maxA_te, dataset_te)[2]) + 3} fontSize="8" fill="#10b981" fontWeight="bold">0</text>
-
-        <path d={getPath_te(1)} fill="none" stroke="#f97316" strokeWidth="1.2" />
-        <text x="455" y={toY_te(interpolateWHO(maxA_te, dataset_te)[1]) + 3} fontSize="8" fill="#f97316" fontWeight="bold">-1</text>
-
-        <path d={getPath_te(0)} fill="none" stroke="#ef4444" strokeWidth="1.5" />
-        <text x="455" y={toY_te(interpolateWHO(maxA_te, dataset_te)[0]) + 3} fontSize="8" fill="#ef4444" fontWeight="bold">-2</text>
-
-        {/* Plotted Point */}
-        {evaluation.talla > 0 && (
-          <g>
-            <circle
-              cx={toX_te(totalMonths)}
-              cy={toY_te(evaluation.talla)}
-              r="6"
-              fill={isMale ? '#3b82f6' : '#ec4899'}
-              stroke="white"
-              strokeWidth="2"
-              className={isPrintView ? '' : 'animate-pulse'}
-            />
-            {!isPrintView && (
-              <circle
-                cx={toX_te(totalMonths)}
-                cy={toY_te(evaluation.talla)}
-                r="12"
-                fill="none"
-                stroke={isMale ? '#3b82f6' : '#ec4899'}
-                strokeWidth="1.5"
-                opacity="0.4"
-                className="animate-ping"
-              />
-            )}
-          </g>
+      <svg viewBox="0 0 650 520" className="w-full h-auto">
+        {/* Axes borders, ticks */}
+        {renderAxesAndTicks(
+          xMajor_te,
+          xMinor_te,
+          yMajor_te,
+          yMinor_te,
+          'Edad (meses)',
+          'Longitud / Talla (cm)',
+          toX_te,
+          toY_te
         )}
 
-        {/* Axes */}
-        <line x1="50" y1="250" x2="450" y2="250" stroke="#cbd5e1" strokeWidth="1.5" />
-        <line x1="50" y1="50" x2="50" y2="250" stroke="#cbd5e1" strokeWidth="1.5" />
-        
-        <text x="250" y="290" fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="semibold">Edad (meses)</text>
-        <text x="15" y="150" fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="semibold" transform="rotate(-90, 15, 150)">Talla (cm)</text>
+        {/* 24-month vertical gray line (Longitud vs Talla transition) */}
+        <line x1={toX_te(24)} y1={yMin} x2={toX_te(24)} y2={yMax} stroke="#94a3b8" strokeWidth="2" strokeDasharray="4 2" />
+
+        {/* Watermarks LONGITUD / TALLA */}
+        <text x={toX_te(12)} y={yMax - 30} fontSize="17" fontWeight="bold" fill="#cbd5e1" textAnchor="middle" letterSpacing="2" opacity="0.75" fontFamily="sans-serif">
+          LONGITUD
+        </text>
+        <text x={toX_te(42)} y={yMax - 30} fontSize="17" fontWeight="bold" fill="#cbd5e1" textAnchor="middle" letterSpacing="2" opacity="0.75" fontFamily="sans-serif">
+          TALLA
+        </text>
+
+        {/* Standard WHO Curves */}
+        {curvesDef.map(curve => (
+          <g key={`hfa-curve-${curve.z}`}>
+            <path
+              d={getCurvePathHeightForAge(curve.z)}
+              fill="none"
+              stroke={curve.color}
+              strokeWidth={curve.width}
+            />
+            {/* End label */}
+            <text
+              x={xMax + 8}
+              y={getLabelYHeightForAge(curve.z) + 4}
+              fontSize="10.5"
+              fontWeight="bold"
+              fill={curve.color}
+              textAnchor="start"
+              fontFamily="sans-serif"
+            >
+              {curve.label}
+            </text>
+          </g>
+        ))}
+
+        {/* Plotted Patient Point */}
+        {evaluation.talla > 0 && (
+          <g>
+            {/* Red dotted crosshairs */}
+            <line x1={toX_te(totalMonths)} y1={yMin} x2={toX_te(totalMonths)} y2={yMax} stroke="#ef4444" strokeWidth="1" strokeDasharray="3 3" />
+            <line x1={xMin} y1={toY_te(pTalla)} x2={xMax} y2={toY_te(pTalla)} stroke="#ef4444" strokeWidth="1" strokeDasharray="3 3" />
+
+            {/* Target crosshair pointer */}
+            <circle cx={toX_te(totalMonths)} cy={toY_te(pTalla)} r="6" fill="none" stroke="#4f46e5" strokeWidth="2" />
+            <line x1={toX_te(totalMonths)} y1={toY_te(pTalla) - 6} x2={toX_te(totalMonths)} y2={toY_te(pTalla) + 6} stroke="#4f46e5" strokeWidth="1.5" />
+            <line x1={toX_te(totalMonths) - 6} y1={toY_te(pTalla)} x2={toX_te(totalMonths) + 6} y2={toY_te(pTalla)} stroke="#4f46e5" strokeWidth="1.5" />
+
+            {/* Legend Tooltip Box */}
+            <rect x={xMin + 20} y={yMin + 20} width="225" height="42" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
+            <line x1={xMin + 30} y1={yMin + 41} x2={xMin + 50} y2={yMin + 41} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3 3" />
+            <text x={xMin + 57} y={yMin + 44} fontSize="10.5" fontWeight="bold" fill="#000000" fontFamily="sans-serif">
+              {`Edad: ${age.years}a ${age.months}m (${Math.round(totalMonths)}m), z: ${evaluation.tallaEdadZ?.toFixed(2).replace('.', ',')}`}
+            </text>
+          </g>
+        )}
       </svg>
     );
   };
@@ -346,7 +522,7 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
             </span>
           )}
           <h4 className={`font-bold text-slate-800 ${isPrintView ? 'text-[11px] leading-tight' : 'text-sm mt-1'}`}>
-            Talla para la Edad ({patient.genero === 'niño' ? 'Niños' : 'Niñas'} {isUnder2 ? '0 a 2 años' : '2 a 5 años'})
+            Talla para la Edad ({patient.genero === 'niño' ? 'Niños' : 'Niñas'} 0 a 5 años)
           </h4>
         </div>
 
@@ -374,113 +550,122 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
   };
 
   // ----------------------------------------------------
-  // CALCULATIONS AND COORDINATES FOR CHART 3: PERÍMETRO CEFÁLICO
+  // CHART 3: PERÍMETRO CEFÁLICO (Head Circumference-for-Age)
   // ----------------------------------------------------
   const minA_pc = 0;
   const maxA_pc = 60;
   const minC_pc = 30;
   const maxC_pc = 56;
 
-  const dataPoints_pc: { age: number; sd2Neg: number; sd0: number; sd2Pos: number }[] = [];
-  const step_pc = 5;
-  const dataset_pc = isMale ? headCircumferenceBoys : headCircumferenceGirls;
+  const toX_pc = (a: number) => xMin + (a / 60) * 525;
+  const toY_pc = (c: number) => yMax - ((c - 30) / 26) * 410;
 
-  for (let i = 0; i <= 12; i++) {
-    const ageVal = minA_pc + i * step_pc;
-    const limits = interpolateWHO(ageVal, dataset_pc);
-    dataPoints_pc.push({
-      age: ageVal,
-      sd2Neg: limits[0],
-      sd0: limits[2],
-      sd2Pos: limits[4],
-    });
-  }
+  // Curves generator
+  const getCurvePathHeadCircumference = (z: number) => {
+    const points: string[] = [];
+    const step = 60 / 30;
+    for (let m = 0; m <= 30; m++) {
+      const currentMonth = m * step;
+      const days = currentMonth * 30.4375;
+      const lms = lookupLms(hcfaTable, days);
+      if (lms) {
+        const val = getValueForZ(lms, z);
+        points.push(`${toX_pc(currentMonth)} ${toY_pc(val)}`);
+      }
+    }
+    return `M ${points.join(' L ')}`;
+  };
 
-  const toX_pc = (a: number) => 50 + ((a - minA_pc) / (maxA_pc - minA_pc)) * 400;
-  const toY_pc = (c: number) => 250 - ((c - minC_pc) / (maxC_pc - minC_pc)) * 200;
-
-  const getPath_pc = (idx: number) => {
-    return dataPoints_pc.map((p, i) => {
-      const limits = interpolateWHO(p.age, dataset_pc);
-      return `${i === 0 ? 'M' : 'L'} ${toX_pc(p.age)} ${toY_pc(limits[idx])}`;
-    }).join(' ');
+  const getLabelYHeadCircumference = (z: number) => {
+    const lms = lookupLms(hcfaTable, 60 * 30.4375);
+    if (lms) {
+      const val = getValueForZ(lms, z);
+      return toY_pc(val);
+    }
+    return 250;
   };
 
   const renderHeadCircumferenceSVG = () => {
+    const xMajor_pc = [0, 12, 24, 36, 48, 60];
+    const xMinor_pc: number[] = [];
+    for (let m = 0; m <= 60; m++) {
+      if (!xMajor_pc.includes(m)) xMinor_pc.push(m);
+    }
+
+    const yMajor_pc = [30, 35, 40, 45, 50, 55, 56];
+    const yMinor_pc: number[] = [];
+    for (let c = 30; c <= 56; c++) {
+      if (!yMajor_pc.includes(c)) yMinor_pc.push(c);
+    }
+
+    const curvesDef = [
+      { z: 3, label: '+3DE', color: '#4b5563', width: '1.5' },
+      { z: 2, label: '+2DE', color: '#ef4444', width: '1.5' },
+      { z: 1, label: '+1DE', color: '#d97706', width: '1.2' },
+      { z: 0, label: 'Mediana', color: '#16a34a', width: '2.5' },
+      { z: -1, label: '-1DE', color: '#d97706', width: '1.2' },
+      { z: -2, label: '-2DE', color: '#ef4444', width: '1.5' },
+      { z: -3, label: '-3DE', color: '#4b5563', width: '1.5' }
+    ];
+
     return (
-      <svg viewBox="0 0 500 300" className="w-full h-auto">
-        {/* Grid lines */}
-        {[0, 1, 2, 3, 4, 5].map(i => {
-          const a = i * 12;
-          return (
-            <g key={i}>
-              <line x1={toX_pc(a)} y1="50" x2={toX_pc(a)} y2="250" stroke="#f1f5f9" strokeWidth="1.2" />
-              <text x={toX_pc(a)} y="265" fontSize="8" textAnchor="middle" fill="#64748b" fontWeight="semibold">
-                {i === 0 ? 'Nac.' : `${i} año${i > 1 ? 's' : ''}`}
-              </text>
-            </g>
-          );
-        })}
-        {[30, 35, 40, 45, 50, 55].map(c => {
-          return (
-            <g key={c}>
-              <line x1="50" y1={toY_pc(c)} x2="450" y2={toY_pc(c)} stroke="#f1f5f9" strokeWidth="1" />
-              <text x="35" y={toY_pc(c) + 3} fontSize="8" textAnchor="end" fill="#94a3b8" fontFamily="monospace">
-                {c}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* standard curves */}
-        <path d={getPath_pc(4)} fill="none" stroke="#ef4444" strokeWidth="1.5" />
-        <text x="455" y={toY_pc(interpolateWHO(maxA_pc, dataset_pc)[4]) + 3} fontSize="8" fill="#ef4444" fontWeight="bold">+2</text>
-
-        <path d={getPath_pc(3)} fill="none" stroke="#eab308" strokeWidth="1" />
-        <text x="455" y={toY_pc(interpolateWHO(maxA_pc, dataset_pc)[3]) + 3} fontSize="8" fill="#eab308" fontWeight="bold">+1</text>
-
-        <path d={getPath_pc(2)} fill="none" stroke="#10b981" strokeWidth="2.5" />
-        <text x="455" y={toY_pc(interpolateWHO(maxA_pc, dataset_pc)[2]) + 3} fontSize="8" fill="#10b981" fontWeight="bold">0</text>
-
-        <path d={getPath_pc(1)} fill="none" stroke="#eab308" strokeWidth="1" />
-        <text x="455" y={toY_pc(interpolateWHO(maxA_pc, dataset_pc)[1]) + 3} fontSize="8" fill="#eab308" fontWeight="bold">-1</text>
-
-        <path d={getPath_pc(0)} fill="none" stroke="#ef4444" strokeWidth="1.5" />
-        <text x="455" y={toY_pc(interpolateWHO(maxA_pc, dataset_pc)[0]) + 3} fontSize="8" fill="#ef4444" fontWeight="bold">-2</text>
-
-        {/* Plotted Point */}
-        {evaluation.perimetroCefalico > 0 && (
-          <g>
-            <circle
-              cx={toX_pc(totalMonths)}
-              cy={toY_pc(evaluation.perimetroCefalico)}
-              r="6"
-              fill={isMale ? '#3b82f6' : '#ec4899'}
-              stroke="white"
-              strokeWidth="2"
-              className={isPrintView ? '' : 'animate-pulse'}
-            />
-            {!isPrintView && (
-              <circle
-                cx={toX_pc(totalMonths)}
-                cy={toY_pc(evaluation.perimetroCefalico)}
-                r="12"
-                fill="none"
-                stroke={isMale ? '#3b82f6' : '#ec4899'}
-                strokeWidth="1.5"
-                opacity="0.4"
-                className="animate-ping"
-              />
-            )}
-          </g>
+      <svg viewBox="0 0 650 520" className="w-full h-auto">
+        {/* Background frame border, ticks */}
+        {renderAxesAndTicks(
+          xMajor_pc,
+          xMinor_pc,
+          yMajor_pc,
+          yMinor_pc,
+          'Edad (meses)',
+          'Perímetro Cefálico (cm)',
+          toX_pc,
+          toY_pc
         )}
 
-        {/* Axes */}
-        <line x1="50" y1="250" x2="450" y2="250" stroke="#cbd5e1" strokeWidth="1.5" />
-        <line x1="50" y1="50" x2="50" y2="250" stroke="#cbd5e1" strokeWidth="1.5" />
-        
-        <text x="250" y="290" fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="semibold">Edad (Meses y años cumplidos)</text>
-        <text x="15" y="150" fontSize="9" textAnchor="middle" fill="#64748b" fontWeight="semibold" transform="rotate(-90, 15, 150)">PC (cm)</text>
+        {/* WHO Curves */}
+        {curvesDef.map(curve => (
+          <g key={`hcfa-curve-${curve.z}`}>
+            <path
+              d={getCurvePathHeadCircumference(curve.z)}
+              fill="none"
+              stroke={curve.color}
+              strokeWidth={curve.width}
+            />
+            {/* End label */}
+            <text
+              x={xMax + 8}
+              y={getLabelYHeadCircumference(curve.z) + 4}
+              fontSize="10.5"
+              fontWeight="bold"
+              fill={curve.color}
+              textAnchor="start"
+              fontFamily="sans-serif"
+            >
+              {curve.label}
+            </text>
+          </g>
+        ))}
+
+        {/* Patient Plot */}
+        {evaluation.perimetroCefalico > 0 && (
+          <g>
+            {/* Red dotted crosshairs */}
+            <line x1={toX_pc(totalMonths)} y1={yMin} x2={toX_pc(totalMonths)} y2={yMax} stroke="#ef4444" strokeWidth="1" strokeDasharray="3 3" />
+            <line x1={xMin} y1={toY_pc(evaluation.perimetroCefalico)} x2={xMax} y2={toY_pc(evaluation.perimetroCefalico)} stroke="#ef4444" strokeWidth="1" strokeDasharray="3 3" />
+
+            {/* Target crosshair pointer */}
+            <circle cx={toX_pc(totalMonths)} cy={toY_pc(evaluation.perimetroCefalico)} r="6" fill="none" stroke="#4f46e5" strokeWidth="2" />
+            <line x1={toX_pc(totalMonths)} y1={toY_pc(evaluation.perimetroCefalico) - 6} x2={toX_pc(totalMonths)} y2={toY_pc(evaluation.perimetroCefalico) + 6} stroke="#4f46e5" strokeWidth="1.5" />
+            <line x1={toX_pc(totalMonths) - 6} y1={toY_pc(evaluation.perimetroCefalico)} x2={toX_pc(totalMonths) + 6} y2={toY_pc(evaluation.perimetroCefalico)} stroke="#4f46e5" strokeWidth="1.5" />
+
+            {/* Legend Tooltip Box */}
+            <rect x={xMin + 20} y={yMin + 20} width="225" height="42" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
+            <line x1={xMin + 30} y1={yMin + 41} x2={xMin + 50} y2={yMin + 41} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3 3" />
+            <text x={xMin + 57} y={yMin + 44} fontSize="10.5" fontWeight="bold" fill="#000000" fontFamily="sans-serif">
+              {`Edad: ${age.years}a ${age.months}m (${Math.round(totalMonths)}m), z: ${evaluation.perimetroCefalicoZ?.toFixed(2).replace('.', ',')}`}
+            </text>
+          </g>
+        )}
       </svg>
     );
   };
@@ -592,28 +777,23 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
       zScore = evaluation.pesoTallaZ || 0;
       svgRenderer = renderWeightForHeightSVG;
 
-      const h = evaluation.talla;
-      let median = evaluation.pesoIdealCalculado || (isMale 
-        ? (isUnder2 ? (h * 0.24 - 8.3) : (h * 0.27 - 10.0))
-        : (isUnder2 ? (h * 0.23 - 8.1) : (h * 0.28 - 11.0)));
+      let median = evaluation.pesoIdealCalculado || 0;
       let valMin2SD = median - 2 * (median * (isUnder2 ? 0.11 : 0.12));
       let valPlus2SD = median + 2 * (median * (isUnder2 ? 0.11 : 0.12));
 
-      if (activeTable) {
-        const lms = lookupLms(activeTable, h);
-        if (lms) {
-          median = lms.M;
-          const lmsToValue = (z: number) => {
-            if (lms.L === 0) {
-              return lms.M * Math.exp(lms.S * z);
-            }
-            const val = 1 + lms.L * lms.S * z;
-            if (val <= 0) return 0.1;
-            return lms.M * Math.pow(val, 1 / lms.L);
-          };
-          valMin2SD = lmsToValue(-2);
-          valPlus2SD = lmsToValue(2);
-        }
+      const lms = lookupLms(activeTable, pTalla);
+      if (lms) {
+        median = lms.M;
+        const lmsToValue = (z: number) => {
+          if (lms.L === 0) {
+            return lms.M * Math.exp(lms.S * z);
+          }
+          const val = 1 + lms.L * lms.S * z;
+          if (val <= 0) return 0.1;
+          return lms.M * Math.pow(val, 1 / lms.L);
+        };
+        valMin2SD = lmsToValue(-2);
+        valPlus2SD = lmsToValue(2);
       }
       
       rangeText = `entre ${valMin2SD.toFixed(1)} kg y ${valPlus2SD.toFixed(1)} kg`;
@@ -621,20 +801,28 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
       diffText = `${evaluation.peso >= median ? '+' : ''}${(evaluation.peso - median).toFixed(1)} kg`;
       clinicalAdvice = getClinicalInterpretation('pesoTalla', classification, zScore);
     } else if (activeModalChart === 'tallaEdad') {
-      title = `Talla para la Edad (${isMale ? 'Niños' : 'Niñas'} ${isUnder2 ? '0 a 2 años' : '2 a 5 años'})`;
+      title = `Talla para la Edad (${isMale ? 'Niños' : 'Niñas'} 0 a 5 años)`;
       groupNum = chartGroup.te;
       classification = evaluation.tallaEdadClass || '';
       zScore = evaluation.tallaEdadZ || 0;
       svgRenderer = renderHeightForAgeSVG;
 
-      const limits = interpolateWHO(totalMonths, dataset_te);
-      const valMin2SD = limits[0];
-      const valMedian = limits[2];
-      const valPlus2SD = limits[4];
+      // Lookup LMS values at patient age in days
+      const days = totalMonths * 30.4375;
+      const lms = lookupLms(lhfaTable, days);
+      let valMin2SD = 0;
+      let valMedian = 0;
+      let valPlus2SD = 0;
+
+      if (lms) {
+        valMedian = lms.M;
+        valMin2SD = getValueForZ(lms, -2);
+        valPlus2SD = getValueForZ(lms, 2);
+      }
 
       rangeText = `entre ${valMin2SD.toFixed(1)} cm y ${valPlus2SD.toFixed(1)} cm`;
       medianText = `${valMedian.toFixed(1)} cm`;
-      diffText = `${evaluation.talla >= valMedian ? '+' : ''}${(evaluation.talla - valMedian).toFixed(1)} cm`;
+      diffText = `${pTalla >= valMedian ? '+' : ''}${(pTalla - valMedian).toFixed(1)} cm`;
       clinicalAdvice = getClinicalInterpretation('tallaEdad', classification, zScore);
     } else if (activeModalChart === 'perimetroCefalico') {
       title = `Perímetro Cefálico (${isMale ? 'Niños' : 'Niñas'} 0 a 5 años)`;
@@ -643,10 +831,17 @@ export default function SomaCharts({ patient, evaluation, isPrintView = false }:
       zScore = evaluation.perimetroCefalicoZ || 0;
       svgRenderer = renderHeadCircumferenceSVG;
 
-      const limits = interpolateWHO(totalMonths, dataset_pc);
-      const valMin2SD = limits[0];
-      const valMedian = limits[2];
-      const valPlus2SD = limits[4];
+      const days = totalMonths * 30.4375;
+      const lms = lookupLms(hcfaTable, days);
+      let valMin2SD = 0;
+      let valMedian = 0;
+      let valPlus2SD = 0;
+
+      if (lms) {
+        valMedian = lms.M;
+        valMin2SD = getValueForZ(lms, -2);
+        valPlus2SD = getValueForZ(lms, 2);
+      }
 
       rangeText = `entre ${valMin2SD.toFixed(1)} cm y ${valPlus2SD.toFixed(1)} cm`;
       medianText = `${valMedian.toFixed(1)} cm`;

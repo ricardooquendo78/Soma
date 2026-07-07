@@ -34,6 +34,8 @@ export interface Evaluation {
   fecha: string;
   peso: number; // kg
   talla: number; // cm
+  medicionTipo?: 'acostado' | 'parado';
+  tallaAjustada?: number;
   pliegueSubescapular: number; // mm
   pliegueTricipital: number; // mm
   perimetroBrazo: number; // cm
