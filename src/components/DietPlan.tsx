@@ -48,9 +48,11 @@ export default function DietPlanComponent({ patient, onUpdatePatient }: DietPlan
   useEffect(() => {
     if (activePlan) {
       setCalories(activePlan.distribucionMacronutrientes.totalCalorias);
-      setCarbsPct(activePlan.distribucionMacronutrientes.carbohidratosPorcentaje);
-      setProtPct(activePlan.distribucionMacronutrientes.proteinasPorcentaje);
-      setFatPct(activePlan.distribucionMacronutrientes.grasasPorcentaje);
+      const loadedCarbs = Math.min(65, Math.max(50, activePlan.distribucionMacronutrientes.carbohidratosPorcentaje));
+      const loadedProt = Math.min(20, Math.max(10, activePlan.distribucionMacronutrientes.proteinasPorcentaje));
+      setCarbsPct(loadedCarbs);
+      setProtPct(loadedProt);
+      setFatPct(100 - (loadedCarbs + loadedProt));
       setMeals(activePlan.comidas);
       setIndicacionesGenerales(activePlan.indicacionesGenerales || '');
     }
@@ -206,13 +208,18 @@ export default function DietPlanComponent({ patient, onUpdatePatient }: DietPlan
                 </div>
                 <input
                   type="range"
-                  min="0"
-                  max="100"
-                  step="5"
+                  min="50"
+                  max="65"
+                  step="1"
                   value={carbsPct}
-                  onChange={(e) => setCarbsPct(parseInt(e.target.value))}
+                  onChange={(e) => {
+                    const newCarbs = parseInt(e.target.value);
+                    setCarbsPct(newCarbs);
+                    setFatPct(100 - (newCarbs + protPct));
+                  }}
                   className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
                 />
+                <span className="text-[10px] text-slate-400 mt-1 block">Rango permitido: 50% - 65%</span>
               </div>
 
               {/* Protein */}
@@ -223,13 +230,18 @@ export default function DietPlanComponent({ patient, onUpdatePatient }: DietPlan
                 </div>
                 <input
                   type="range"
-                  min="0"
-                  max="100"
-                  step="5"
+                  min="10"
+                  max="20"
+                  step="1"
                   value={protPct}
-                  onChange={(e) => setProtPct(parseInt(e.target.value))}
+                  onChange={(e) => {
+                    const newProt = parseInt(e.target.value);
+                    setProtPct(newProt);
+                    setFatPct(100 - (carbsPct + newProt));
+                  }}
                   className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
                 />
+                <span className="text-[10px] text-slate-400 mt-1 block">Rango permitido: 10% - 20%</span>
               </div>
 
               {/* Fat */}
@@ -242,11 +254,11 @@ export default function DietPlanComponent({ patient, onUpdatePatient }: DietPlan
                   type="range"
                   min="0"
                   max="100"
-                  step="5"
                   value={fatPct}
-                  onChange={(e) => setFatPct(parseInt(e.target.value))}
-                  className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                  disabled
+                  className="w-full accent-slate-400 h-1.5 bg-slate-100 rounded-lg cursor-not-allowed opacity-60"
                 />
+                <span className="text-[10px] text-slate-400 mt-1 block">Calculado automáticamente (100% - Carbohidratos - Proteínas)</span>
               </div>
             </div>
 
